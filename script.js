@@ -23,7 +23,7 @@ function sortData(sortType, button) {
             }
         } else {
             // Add a new sort in asc order
-            currentSort.unshift({ type: sortType, order: 'asc' });
+            currentSort.unshift({ type: sortType, order: 'asc' });ƒƒƒ
         }
         // If toggled to 'asc' or 'desc', bring it to the front
         idx = currentSort.findIndex(sort => sort.type === sortType);
@@ -533,4 +533,3 @@ function saveCSVToServer(data) {
         alert('Failed to save CSV to server.');
     });
 }
->>>>>>> REPLACE
