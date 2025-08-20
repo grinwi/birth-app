@@ -1,3 +1,21 @@
+const GITHUB_CSV_URL = "https://raw.githubusercontent.com/grinwi/birth-app/main/birthdays.csv";
+// Load CSV from GitHub on page load
+window.addEventListener('DOMContentLoaded', () => {
+    fetch(GITHUB_CSV_URL)
+        .then(response => {
+            if (!response.ok) throw new Error("Failed to load CSV from GitHub");
+            return response.text();
+        })
+        .then(csvText => {
+            const csvData = parseCSV(csvText);
+            currentData = csvData;
+            populateTable(csvData);
+        })
+        .catch(error => {
+            console.error("Error loading CSV from GitHub:", error);
+        });
+});
+
 document.getElementById('csv-file-input').addEventListener('change', handleFileInput);
 
 let currentData = [];
