@@ -1,0 +1,116 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f2f2f7;
+    margin: 20px;
+}
+
+.filters {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+}
+
+/* Style for period buttons */
+.period-btn {
+    background-color: grey;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.period-btn.active {
+    background-color: #007aff;
+    color: white;
+}
+
+button {
+    background-color: #007aff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+.btn-delete {
+    background-color: #f44336 !important;
+}
+.btn-edit {
+    background-color: #007aff !important;
+}
+.btn-cancel {
+    background-color: #a1a1a1 !important;
+}
+.btn-save {
+    background-color: #34c759 !important;
+}
+
+.btn-delete:hover {
+    background-color: #b71c1c !important;
+}
+.btn-edit:hover {
+    background-color: #0056b3 !important;
+}
+.btn-cancel:hover {
+    background-color: #595959 !important;
+}
+.btn-save:hover {
+    background-color: #2ea046 !important;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+.sort-btn.active {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.sort-btn {
+    background-color: grey;
+    color: white;
+}
+
+.sort-btn span {
+    color: black;
+}
+
+.sort-btn.active-asc {
+    background-color: #4CAF50;
+}
+
+.sort-btn.active-desc {
+    background-color: #f44336;
+}
+
+#birthdays-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: white;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+#birthdays-table th, #birthdays-table td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: left;
+}
+
+#birthdays-table th {
+    background-color: #f0f0f0;
+}
+
+#add-row-btn {
+    margin-top: 20px;
+    background-color: #34c759;
+}
+
+#add-row-btn:hover {
+    background-color: #2ea046;
+}

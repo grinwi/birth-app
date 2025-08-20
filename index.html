@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Birthdays App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Birthdays App</h1>
+    <input type="file" id="csv-file-input" accept=".csv">
+    <div class="filters">
+        <button id="all-btn" class="period-btn active">ALL</button>
+        <button id="today-btn" class="period-btn">Today</button>
+        <button id="this-week-btn" class="period-btn">This Week</button>
+        <button id="next-week-btn" class="period-btn">Next Week</button>
+        <button id="this-month-btn" class="period-btn">This Month</button>
+        <button id="next-month-btn" class="period-btn">Next Month</button>
+        <button id="this-quarter-btn" class="period-btn">This Quarter</button>
+        <button id="next-quarter-btn" class="period-btn">Next Quarter</button>
+        <button id="this-year-btn" class="period-btn">This Year</button>
+        <button id="next-year-btn" class="period-btn">Next Year</button>
+        <label for="modulo-select">Modulo Age: </label>
+        <select id="modulo-select">
+            <option value="none">None</option>
+            <option value="5">Modulo 5</option>
+            <option value="10">Modulo 10</option>
+        </select>
+    </div>
+    <table id="birthdays-table">
+        <thead>
+            <tr>
+                <th>
+                    First Name
+                    <button id="sort-first-name-btn" onclick="sortData('first_name', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>
+                    Last Name
+                    <button id="sort-last-name-btn" onclick="sortData('last_name', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>
+                    Day
+                    <button id="sort-day-btn" onclick="sortData('day', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>
+                    Month
+                    <button id="sort-month-btn" onclick="sortData('month', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>
+                    Year
+                    <button id="sort-year-btn" onclick="sortData('year', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>
+                    Age
+                    <button id="sort-age-btn" onclick="sortData('age', this)" class="sort-btn" style="color: grey;"><span>↔</span></button>
+                </th>
+                <th>Next Birthday</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="birthdays-tbody">
+            <!-- Data will be populated here -->
+        </tbody>
+    </table>
+    <button id="add-row-btn">Add Row</button>
+    <button id="download-csv-btn">Download CSV</button>
+
+    <script src="script.js"></script>
+</body>
+</html>
