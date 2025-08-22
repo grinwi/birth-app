@@ -1,19 +1,21 @@
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/grinwi/birth-app/main/birthdays.csv";
 // Load CSV from GitHub on page load
 window.addEventListener('DOMContentLoaded', () => {
-    fetch(GITHUB_CSV_URL)
-        .then(response => {
-            if (!response.ok) throw new Error("Failed to load CSV from GitHub");
-            return response.text();
-        })
-        .then(csvText => {
-            const csvData = parseCSV(csvText);
-            currentData = csvData;
-            populateTable(csvData);
-        })
-        .catch(error => {
-            console.error("Error loading CSV from GitHub:", error);
-        });
+    initEventListeners();
+
+fetch(GITHUB_CSV_URL)
+    .then(response => {
+        if (!response.ok) throw new Error("Failed to load CSV from GitHub");
+        return response.text();
+    })
+    .then(csvText => {
+        const csvData = parseCSV(csvText);
+        currentData = csvData;
+        populateTable(csvData);
+    })
+    .catch(error => {
+        console.error("Error loading CSV from GitHub:", error);
+    });
 });
 
 document.getElementById('csv-file-input').addEventListener('change', handleFileInput);
@@ -99,6 +101,26 @@ function sortByColumn(a, b, type, order) {
 }
 
 
+function resetFiltersAndUI() {
+    // Reset all sort buttons to initial state
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    sortButtons.forEach(btn => {
+        btn.classList.remove('active-asc');
+        btn.classList.remove('active-desc');
+        const span = btn.querySelector('span');
+        if (span) {
+            span.textContent = '↔';
+        }
+    });
+
+    // Reset filters
+    const periodButtons = document.querySelectorAll('.period-btn');
+    periodButtons.forEach(b => b.classList.remove('active'));
+    document.getElementById('all-btn').classList.add('active');
+    document.getElementById('modulo-select').value = 'none';
+    window.__activePeriod = "all";
+}
+
 function handleFileInput(event) {
     const file = event.target.files[0];
     if (file) {
@@ -106,49 +128,8 @@ function handleFileInput(event) {
         reader.onload = () => {
             const csvData = parseCSV(reader.result);
             currentData = csvData;
-            populateTable(csvData);
-
-            // Reset all sort buttons to initial state
-            const sortButtons = document.querySelectorAll('.sort-btn');
-            sortButtons.forEach(btn => {
-                btn.classList.remove('active-asc');
-                btn.classList.remove('active-desc');
-                const span = btn.querySelector('span');
-                if (span) {
-                    span.textContent = '↔';
-                }
-            });
-
-            // Add event listeners for period filters (one shared function, update active state)
-            const periodButtons = document.querySelectorAll('.period-btn');
-            periodButtons.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    periodButtons.forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    // Infer period value from id, 'all' for ALL
-                    let period = btn.id.replace('-btn','').replace('all','all');
-                    if (period === 'all') period = 'all';
-                    else if (btn.id === 'today-btn') period = 'today';
-                    else if (btn.id === 'this-week-btn') period = 'this-week';
-                    else if (btn.id === 'next-week-btn') period = 'next-week';
-                    else if (btn.id === 'this-month-btn') period = 'this-month';
-                    else if (btn.id === 'next-month-btn') period = 'next-month';
-                    else if (btn.id === 'this-quarter-btn') period = 'this-quarter';
-                    else if (btn.id === 'next-quarter-btn') period = 'next-quarter';
-                    else if (btn.id === 'this-year-btn') period = 'this-year';
-                    else if (btn.id === 'next-year-btn') period = 'next-year';
-                    applyActiveFilters(csvData, period);
-                });
-            });
-
-            // Add event listener for modulo <select>
-            document.getElementById('modulo-select').addEventListener('change', () => applyActiveFilters(csvData));
-
-            // Add event listener for add row button
-            document.getElementById('add-row-btn').addEventListener('click', () => {
-                console.log('Add Row button clicked');
-                addRow(csvData);
-            });
+            resetFiltersAndUI();
+            applyActiveFilters(csvData, 'all');
         };
         reader.readAsText(file);
     }
@@ -470,7 +451,8 @@ function addRow(data) {
         };
         data.push(newRow);
         currentData = data;
-        populateTable(data);
+        resetFiltersAndUI();
+        applyActiveFilters(data, "all");
     } catch (error) {
         console.error('Error adding row:', error);
     }
@@ -523,6 +505,69 @@ function updateSortButton(button, order) {
                 break;
         }
     }
+}
+
+function initEventListeners() {
+    // Period buttons
+    const periodButtons = document.querySelectorAll('.period-btn');
+    periodButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            periodButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            let period = btn.id.replace('-btn', '').replace('all', 'all');
+            if (period === 'all') period = 'all';
+            else if (btn.id === 'today-btn') period = 'today';
+            else if (btn.id === 'this-week-btn') period = 'this-week';
+            else if (btn.id === 'next-week-btn') period = 'next-week';
+            else if (btn.id === 'this-month-btn') period = 'this-month';
+            else if (btn.id === 'next-month-btn') period = 'next-month';
+            else if (btn.id === 'this-quarter-btn') period = 'this-quarter';
+            else if (btn.id === 'next-quarter-btn') period = 'next-quarter';
+            else if (btn.id === 'this-year-btn') period = 'this-year';
+            else if (btn.id === 'next-year-btn') period = 'next-year';
+            applyActiveFilters(currentData, period);
+        });
+    });
+
+    // Modulo select
+    document.getElementById('modulo-select').addEventListener('change', () => applyActiveFilters(currentData));
+
+    // Add row button
+    document.getElementById('add-row-btn').addEventListener('click', () => {
+        console.log('Add Row button clicked');
+        addRow(currentData);
+    });
+
+    // Download button
+    document.getElementById('download-csv-btn').addEventListener('click', downloadCSV);
+
+    // File input (already has listener, but ensure it's there)
+    document.getElementById('csv-file-input').addEventListener('change', handleFileInput);
+}
+
+function downloadCSV() {
+    if (!currentData.length) {
+        alert("No data to download.");
+        return;
+    }
+    const keys = Object.keys(currentData[0]);
+    const csvRows = [
+        keys.join(','),
+        ...currentData.map(row =>
+            keys.map(field => `"${String(row[field]).replace(/"/g, '""')}"`).join(',')
+        )
+    ];
+    const csvStr = csvRows.join('\n');
+
+    const blob = new Blob([csvStr], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'birthdays.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 /* Save updated birthdays.csv to backend via POST */
