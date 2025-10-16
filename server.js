@@ -52,9 +52,10 @@ app.post('/csv', (req, res) => {
  *   - GITHUB_REPO_OWNER, GITHUB_REPO, GITHUB_BRANCH, GITHUB_FILE_PATH
  */
 app.post('/csv/github', async (req, res) => {
-    const token = process.env.GITHUB_TOKEN;
+    // Accept either standard GITHUB_TOKEN or your named token BIRTHDAY_APP_EDIT_CSV_TOKEN
+    const token = process.env.GITHUB_TOKEN || process.env.BIRTHDAY_APP_EDIT_CSV_TOKEN;
     if (!token) {
-        return res.status(500).send('Server missing GITHUB_TOKEN environment variable.');
+        return res.status(500).send('Server missing GITHUB_TOKEN or BIRTHDAY_APP_EDIT_CSV_TOKEN environment variable.');
     }
 
     const csv = req.body;
