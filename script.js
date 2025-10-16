@@ -1,7 +1,198 @@
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/grinwi/birth-app/main/birthdays.csv";
+let API_BASE = '';
+const GH_OWNER = 'grinwi';
+const GH_REPO = 'birth-app';
+const GH_BRANCH = 'main';
+const GH_FILE_PATH = 'birthdays.csv';
+
+async function githubDirectUpdate(csvStr, token) {
+    const fileUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(GH_FILE_PATH)}?ref=${encodeURIComponent(GH_BRANCH)}`;
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28'
+    };
+    // Fetch current file SHA if it exists
+    let currentSha = null;
+    const metaResp = await fetch(fileUrl, { headers });
+    if (metaResp.ok) {
+        const metaJson = await metaResp.json();
+        currentSha = metaJson.sha;
+    } else if (metaResp.status !== 404) {
+        const t = await metaResp.text();
+        throw new Error(`GitHub metadata fetch failed: ${metaResp.status} ${t}`);
+    }
+    const contentB64 = base64Encode(csvStr);
+    const body = {
+        message: 'Update birthdays.csv via GitHub Pages app',
+        content: contentB64,
+        branch: GH_BRANCH
+    };
+    if (currentSha) body.sha = currentSha;
+
+    const putResp = await fetch(fileUrl, { method: 'PUT', headers, body: JSON.stringify(body) });
+    if (!putResp.ok) {
+        const t = await putResp.text();
+        throw new Error(`GitHub update failed: ${putResp.status} ${t}`);
+    }
+    return true;
+}
+
+async function githubDirectPR(csvStr, token) {
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28'
+    };
+
+    // 1) Resolve base branch HEAD sha
+    const refResp = await fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${encodeURIComponent(GH_BRANCH)}`, { headers });
+    if (!refResp.ok) {
+        const t = await refResp.text();
+        throw new Error(`Failed to resolve base ref: ${refResp.status} ${t}`);
+    }
+    const refJson = await refResp.json();
+    const baseSha = refJson.object && refJson.object.sha;
+    if (!baseSha) throw new Error('Base branch SHA not found');
+
+    // 2) Create a unique PR branch
+    let prBranch = `update-birthdays-${new Date().toISOString().replace(/[-:TZ]/g, '').slice(0, 14)}`;
+    // Attempt to create; if already exists, add random suffix up to a few tries
+    let created = false, attempts = 0;
+    while (!created && attempts < 5) {
+        const createRefResp = await fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/refs`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                ref: `refs/heads/${prBranch}`,
+                sha: baseSha
+            })
+        });
+        if (createRefResp.ok) {
+            created = true;
+        } else {
+            const status = createRefResp.status;
+            if (status === 422) {
+                attempts++;
+                prBranch = `${prBranch}-${Math.random().toString(36).slice(2, 8)}`;
+            } else {
+                const t = await createRefResp.text();
+                throw new Error(`Failed to create branch: ${status} ${t}`);
+            }
+        }
+    }
+    if (!created) throw new Error('Could not create PR branch after multiple attempts');
+
+    // 3) Determine current file SHA on PR branch (if exists)
+    let currentSha = null;
+    const metaResp = await fetch(
+        `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(GH_FILE_PATH)}?ref=${encodeURIComponent(prBranch)}`,
+        { headers }
+    );
+    if (metaResp.ok) {
+        const metaJson = await metaResp.json();
+        currentSha = metaJson.sha;
+    } else if (metaResp.status !== 404) {
+        const t = await metaResp.text();
+        throw new Error(`GitHub metadata fetch failed: ${metaResp.status} ${t}`);
+    }
+
+    // 4) Commit file contents to PR branch
+    const contentB64 = base64Encode(csvStr);
+    const putResp = await fetch(
+        `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(GH_FILE_PATH)}`,
+        {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+                message: 'Update birthdays.csv via GitHub Pages app (PR)',
+                content: contentB64,
+                sha: currentSha || undefined,
+                branch: prBranch
+            })
+        }
+    );
+    if (!putResp.ok) {
+        const t = await putResp.text();
+        throw new Error(`GitHub content update failed: ${putResp.status} ${t}`);
+    }
+
+    // 5) Open PR from prBranch into GH_BRANCH
+    const prResp = await fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/pulls`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            title: 'Update birthdays.csv',
+            head: prBranch,
+            base: GH_BRANCH,
+            body: 'Automated update of birthdays.csv via the Birth App frontend.'
+        })
+    });
+    if (!prResp.ok) {
+        const t = await prResp.text();
+        throw new Error(`Failed to open PR: ${prResp.status} ${t}`);
+    }
+    const prJson = await prResp.json();
+    return { pr_url: prJson.html_url, pr_number: prJson.number, branch: prBranch };
+}
+
+function base64Encode(str) {
+    try {
+        // Handles unicode
+        return btoa(unescape(encodeURIComponent(str)));
+    } catch (e) {
+        const bytes = new TextEncoder().encode(str);
+        let binary = '';
+        bytes.forEach(b => binary += String.fromCharCode(b));
+        return btoa(binary);
+    }
+}
+
+function initApiBase() {
+    try {
+        if (window.location.hostname.endsWith('github.io')) {
+            const saved = localStorage.getItem('APP_API_BASE');
+            if (saved) {
+                API_BASE = saved.replace(/\/$/, '');
+            } else if (window.APP_API_BASE) {
+                API_BASE = String(window.APP_API_BASE).replace(/\/$/, '');
+            } else {
+                API_BASE = '';
+            }
+        } else {
+            // On localhost or a custom domain where the Express server serves the frontend,
+            // use same-origin by default.
+            API_BASE = '';
+        }
+    } catch (e) {
+        API_BASE = '';
+    }
+}
+function updateBackendStatus() {
+    try {
+        const el = document.getElementById('backend-status');
+        if (!el) return;
+        if (window.location.hostname.endsWith('github.io')) {
+            if (API_BASE) {
+                el.textContent = `Backend: ${API_BASE}`;
+                el.style.color = '#2c7';
+            } else {
+                el.textContent = 'Backend: not set (GitHub Pages is static; set a backend URL to enable Save)';
+                el.style.color = '#c72';
+            }
+        } else {
+            el.textContent = 'Backend: same origin';
+            el.style.color = '#2c7';
+        }
+    } catch (e) {}
+}
 // Load CSV from GitHub on page load
 window.addEventListener('DOMContentLoaded', () => {
+    initApiBase();
     initEventListeners();
+    updateBackendStatus();
 
 fetch(GITHUB_CSV_URL)
     .then(response => {
@@ -553,6 +744,19 @@ function initEventListeners() {
         saveGithubBtn.addEventListener('click', () => saveCSVToGitHub(currentData));
     }
 
+    // Set Backend URL button (for GitHub Pages)
+    const setApiBaseBtn = document.getElementById('set-api-base-btn');
+    if (setApiBaseBtn) {
+        setApiBaseBtn.addEventListener('click', () => {
+            const url = prompt('Enter backend API base URL (e.g., https://your-api.example.com)', API_BASE || '');
+            if (url !== null) {
+                API_BASE = url.trim().replace(/\/$/, '');
+                try { localStorage.setItem('APP_API_BASE', API_BASE); } catch (e) {}
+                updateBackendStatus();
+            }
+        });
+    }
+
     // File input (already has listener, but ensure it's there)
     document.getElementById('csv-file-input').addEventListener('change', handleFileInput);
 }
@@ -588,6 +792,13 @@ function saveCSVToServer(data) {
         alert("No data to save.");
         return;
     }
+    // On GitHub Pages there is no backend; prompt for external API base once.
+    if (!API_BASE && window.location.hostname.endsWith('github.io')) {
+        const url = prompt('Enter backend API base URL (e.g., https://your-api.example.com)');
+        if (!url) { alert('Backend URL required on GitHub Pages.'); return; }
+        API_BASE = url.replace(/\/$/, '');
+        try { localStorage.setItem('APP_API_BASE', API_BASE); } catch (e) {}
+    }
     const keys = Object.keys(data[0]);
     const csvRows = [
         keys.join(','),
@@ -597,7 +808,7 @@ function saveCSVToServer(data) {
     ];
     const csvStr = csvRows.join('\n');
 
-    fetch('/csv', {
+    fetch(`${API_BASE}/csv`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/csv' },
         body: csvStr
@@ -615,6 +826,13 @@ function saveCSVToGitHub(data) {
         alert("No data to save.");
         return;
     }
+    const onPages = window.location.hostname.endsWith('github.io');
+    let directToken = null;
+    // If running on GitHub Pages and no backend is configured, use direct GitHub API with a user-provided token
+    if (onPages && !API_BASE) {
+        directToken = prompt('Enter a GitHub Personal Access Token with Contents: Read and write for grinwi/birth-app. It will be used only for this request and not stored.');
+        if (!directToken) { alert('A GitHub token is required to push directly from GitHub Pages.'); return; }
+    }
     const keys = Object.keys(data[0]);
     const csvRows = [
         keys.join(','),
@@ -624,15 +842,40 @@ function saveCSVToGitHub(data) {
     ];
     const csvStr = csvRows.join('\n');
 
-    fetch('/csv/github', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/csv' },
-        body: csvStr
-    }).then(res => {
-        if (!res.ok) return res.text().then(t => { throw new Error(t || 'Failed to push to GitHub'); });
-        alert('CSV pushed to GitHub successfully!');
-    }).catch(err => {
-        console.error('GitHub save failed:', err);
-        alert('Failed to push CSV to GitHub.');
-    });
+    if (directToken) {
+        githubDirectPR(csvStr, directToken)
+            .then(data => {
+                if (data && data.pr_url) {
+                    alert(`Pull Request opened: ${data.pr_url}`);
+                } else {
+                    alert('Change submitted via PR.');
+                }
+            })
+            .catch(err => {
+                console.error('GitHub direct PR failed:', err);
+                alert('Failed to open Pull Request to GitHub.');
+            });
+    } else {
+        fetch(`${API_BASE}/csv/github`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/csv' },
+            body: csvStr
+        }).then(async res => {
+            if (!res.ok) {
+                const t = await res.text().catch(() => '');
+                throw new Error(t || 'Failed to push to GitHub');
+            }
+            // Try to parse PR info
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (data && data.pr_url) {
+                alert(`Pull Request opened: ${data.pr_url}`);
+            } else {
+                alert('Change submitted via PR.');
+            }
+        }).catch(err => {
+            console.error('GitHub save failed:', err);
+            alert('Failed to push CSV to GitHub.');
+        });
+    }
 }
