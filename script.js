@@ -541,6 +541,18 @@ function initEventListeners() {
     // Download button
     document.getElementById('download-csv-btn').addEventListener('click', downloadCSV);
 
+    // Save to Server button
+    const saveServerBtn = document.getElementById('save-server-btn');
+    if (saveServerBtn) {
+        saveServerBtn.addEventListener('click', () => saveCSVToServer(currentData));
+    }
+
+    // Save to GitHub button
+    const saveGithubBtn = document.getElementById('save-github-btn');
+    if (saveGithubBtn) {
+        saveGithubBtn.addEventListener('click', () => saveCSVToGitHub(currentData));
+    }
+
     // File input (already has listener, but ensure it's there)
     document.getElementById('csv-file-input').addEventListener('change', handleFileInput);
 }
@@ -594,5 +606,33 @@ function saveCSVToServer(data) {
         alert('CSV saved successfully!');
     }).catch(() => {
         alert('Failed to save CSV to server.');
+    });
+}
+
+/* Save to GitHub via server endpoint that commits to repo */
+function saveCSVToGitHub(data) {
+    if (!data.length) {
+        alert("No data to save.");
+        return;
+    }
+    const keys = Object.keys(data[0]);
+    const csvRows = [
+        keys.join(','),
+        ...data.map(row =>
+            keys.map(field => `"${String(row[field]).replace(/"/g, '""')}"`).join(',')
+        )
+    ];
+    const csvStr = csvRows.join('\n');
+
+    fetch('/csv/github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: csvStr
+    }).then(res => {
+        if (!res.ok) return res.text().then(t => { throw new Error(t || 'Failed to push to GitHub'); });
+        alert('CSV pushed to GitHub successfully!');
+    }).catch(err => {
+        console.error('GitHub save failed:', err);
+        alert('Failed to push CSV to GitHub.');
     });
 }
