@@ -152,18 +152,24 @@ function base64Encode(str) {
 
 function initApiBase() {
     try {
-        const DEFAULT_BASE = 'https://birth-app.vercel.app/api';
-        // Hardcoded default
-        API_BASE = DEFAULT_BASE;
+        // Hardcode and ignore any previous overrides
+        const HARD_BASE = 'https://birth-app.vercel.app/api';
+        API_BASE = HARD_BASE;
 
-        // Optional overrides (if you ever want to change without code changes)
-        if (window.APP_API_BASE) {
-            API_BASE = String(window.APP_API_BASE).replace(/\/$/, '');
+        // Ensure suffix /api and strip trailing slash
+        try {
+            const u = new URL(API_BASE);
+            if (!u.pathname.endsWith('/api')) {
+                u.pathname = (u.pathname.replace(/\/$/, '')) + '/api';
+            }
+            API_BASE = u.toString().replace(/\/$/, '');
+        } catch (_) {
+            API_BASE = HARD_BASE.replace(/\/$/, '');
         }
-        const saved = localStorage.getItem('APP_API_BASE');
-        if (saved) {
-            API_BASE = saved.replace(/\/$/, '');
-        }
+
+        // Clear any previously saved overrides so old values don't interfere
+        try { localStorage.removeItem('APP_API_BASE'); } catch (_) {}
+        // Intentionally do NOT read window.APP_API_BASE or localStorage here (hardcoded)
     } catch (e) {
         API_BASE = 'https://birth-app.vercel.app/api';
     }
