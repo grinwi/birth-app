@@ -1,5 +1,5 @@
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/grinwi/birth-app/main/birthdays.csv";
-let API_BASE = '';
+let API_BASE = 'https://birth-app.vercel.app/api';
 const GH_OWNER = 'grinwi';
 const GH_REPO = 'birth-app';
 const GH_BRANCH = 'main';
@@ -152,22 +152,20 @@ function base64Encode(str) {
 
 function initApiBase() {
     try {
-        if (window.location.hostname.endsWith('github.io')) {
-            const saved = localStorage.getItem('APP_API_BASE');
-            if (saved) {
-                API_BASE = saved.replace(/\/$/, '');
-            } else if (window.APP_API_BASE) {
-                API_BASE = String(window.APP_API_BASE).replace(/\/$/, '');
-            } else {
-                API_BASE = '';
-            }
-        } else {
-            // On localhost or a custom domain where the Express server serves the frontend,
-            // use same-origin by default.
-            API_BASE = '';
+        const DEFAULT_BASE = 'https://birth-app.vercel.app/api';
+        // Hardcoded default
+        API_BASE = DEFAULT_BASE;
+
+        // Optional overrides (if you ever want to change without code changes)
+        if (window.APP_API_BASE) {
+            API_BASE = String(window.APP_API_BASE).replace(/\/$/, '');
+        }
+        const saved = localStorage.getItem('APP_API_BASE');
+        if (saved) {
+            API_BASE = saved.replace(/\/$/, '');
         }
     } catch (e) {
-        API_BASE = '';
+        API_BASE = 'https://birth-app.vercel.app/api';
     }
 }
 function updateBackendStatus() {
