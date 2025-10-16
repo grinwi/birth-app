@@ -1,5 +1,5 @@
 const GITHUB_CSV_URL = "https://raw.githubusercontent.com/grinwi/birth-app/main/birthdays.csv";
-let API_BASE = 'https://birth-app.vercel.app/api';
+let API_BASE = '/api';
 const GH_OWNER = 'grinwi';
 const GH_REPO = 'birth-app';
 const GH_BRANCH = 'main';
@@ -152,26 +152,17 @@ function base64Encode(str) {
 
 function initApiBase() {
     try {
-        // Hardcode and ignore any previous overrides
-        const HARD_BASE = 'https://birth-app.vercel.app/api';
-        API_BASE = HARD_BASE;
-
-        // Ensure suffix /api and strip trailing slash
-        try {
-            const u = new URL(API_BASE);
-            if (!u.pathname.endsWith('/api')) {
-                u.pathname = (u.pathname.replace(/\/$/, '')) + '/api';
-            }
-            API_BASE = u.toString().replace(/\/$/, '');
-        } catch (_) {
-            API_BASE = HARD_BASE.replace(/\/$/, '');
+        // Serve everything from one origin on Vercel -> use relative '/api'
+        // Local development with Express (server.js) -> use same-origin '' (no /api)
+        const host = location.hostname;
+        if (host === 'localhost' || host === '127.0.0.1') {
+            API_BASE = '';
+        } else {
+            API_BASE = '/api';
         }
-
-        // Clear any previously saved overrides so old values don't interfere
-        try { localStorage.removeItem('APP_API_BASE'); } catch (_) {}
-        // Intentionally do NOT read window.APP_API_BASE or localStorage here (hardcoded)
+        // Do not read overrides; keep single-origin to avoid CORS on Pages
     } catch (e) {
-        API_BASE = 'https://birth-app.vercel.app/api';
+        API_BASE = '/api';
     }
 }
 function updateBackendStatus() {
