@@ -8,6 +8,7 @@ const nextConfig = {
     return [
       { source: '/api-py/health', destination: '/api/health.py' },
       { source: '/api-py/people', destination: '/api/people.py' },
+      { source: '/api-py/people-plain', destination: '/api/people_plain.py' },
       { source: '/api-py/people/:index', destination: '/api/people_index.py?index=:index' },
       { source: '/api-py/json', destination: '/api/json.py' },
       { source: '/api-py/auth/login', destination: '/api/auth/login.py' },
