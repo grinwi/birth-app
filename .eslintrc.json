@@ -28,8 +28,7 @@
     "node_modules/",
     "dist/",
     "build/",
-    "coverage/",
-    "birthdays.csv"
+    "coverage/"
   ],
   "rules": {
     "no-console": "off",

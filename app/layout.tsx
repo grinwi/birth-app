@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Birthdays App',
-  description: 'Manage birthdays with filters, sorting, and CSV sync',
+  description: 'Manage birthdays with filters and sorting',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
