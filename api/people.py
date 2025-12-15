@@ -1,4 +1,5 @@
 import json
+import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -101,7 +102,54 @@ class handler(BaseHTTPRequestHandler):
             rows = store_get_rows()
             _json_response(self, 200, {"data": rows, "count": len(rows)})
         except Exception as e:
-            _json_response(self, 500, {"error": f"Failed to read store: {str(e)}"})
+            # Provide detailed diagnostics, including redacted values, to identify misconfiguration
+            blob_vars = ["BLOB_BASE_URL", "BLOB_READ_WRITE_TOKEN", "BLOB_JSON_KEY"]
+            github_vars = ["GITHUB_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO", "GITHUB_BRANCH", "GITHUB_JSON_FILE_PATH"]
+
+            def _redact(name: str, secret: bool = False) -> str:
+                v = (os.getenv(name) or "").strip()
+                if not v:
+                    return ""
+                if not secret:
+                    return v
+                # redact secrets: show first/last 4 chars and the length
+                n = len(v)
+                if n <= 8:
+                    return f"<redacted:{n}>"
+                return f"{v[:4]}…{v[-4:]} (len={n})"
+
+            env_preview = {
+                "BLOB_BASE_URL": _redact("BLOB_BASE_URL"),
+                "BLOB_READ_WRITE_TOKEN": _redact("BLOB_READ_WRITE_TOKEN", secret=True),
+                "BLOB_JSON_KEY": _redact("BLOB_JSON_KEY"),
+                "GITHUB_TOKEN": _redact("GITHUB_TOKEN", secret=True),
+                "GITHUB_REPO_OWNER": _redact("GITHUB_REPO_OWNER"),
+                "GITHUB_REPO": _redact("GITHUB_REPO"),
+                "GITHUB_BRANCH": _redact("GITHUB_BRANCH"),
+                "GITHUB_JSON_FILE_PATH": _redact("GITHUB_JSON_FILE_PATH"),
+            }
+
+            missing_blob = [v for v in blob_vars if not (os.getenv(v) or "").strip()]
+            missing_github = [v for v in github_vars if not (os.getenv(v) or "").strip()]
+
+            _json_response(self, 500, {
+                "ok": False,
+                "error": f"Failed to read store: {str(e)}",
+                "blob": {
+                    "configured": len(missing_blob) == 0,
+                    "missing": missing_blob
+                },
+                "github": {
+                    "configured": len(missing_github) == 0,
+                    "missing": missing_github
+                },
+                "env_preview": env_preview,
+                "notes": [
+                    "Verify Blob values (URL/token/key) are correct and reachable.",
+                    "If Blob is empty, the server will try to bootstrap from the GitHub JSON snapshot on next request.",
+                    "Verify GitHub values and that the JSON file exists in the repository."
+                ]
+            })
 
     def do_POST(self):
         # Mutations still require auth
