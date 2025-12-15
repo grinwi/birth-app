@@ -1,5 +1,8 @@
 import json
 import os
+import urllib.request
+import urllib.parse
+import urllib.error
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -102,7 +105,7 @@ class handler(BaseHTTPRequestHandler):
             rows = store_get_rows()
             _json_response(self, 200, {"data": rows, "count": len(rows)})
         except Exception as e:
-            # Provide detailed diagnostics, including redacted values, to identify misconfiguration
+            # Provide detailed diagnostics, including redacted values, plus live probes, to identify misconfiguration
             blob_vars = ["BLOB_BASE_URL", "BLOB_READ_WRITE_TOKEN", "BLOB_JSON_KEY"]
             github_vars = ["GITHUB_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO", "GITHUB_BRANCH", "GITHUB_JSON_FILE_PATH"]
 
@@ -112,7 +115,6 @@ class handler(BaseHTTPRequestHandler):
                     return ""
                 if not secret:
                     return v
-                # redact secrets: show first/last 4 chars and the length
                 n = len(v)
                 if n <= 8:
                     return f"<redacted:{n}>"
@@ -132,22 +134,64 @@ class handler(BaseHTTPRequestHandler):
             missing_blob = [v for v in blob_vars if not (os.getenv(v) or "").strip()]
             missing_github = [v for v in github_vars if not (os.getenv(v) or "").strip()]
 
+            # Live probes (read-only) to help detect common issues
+            blob_url = None
+            blob_get_status = None
+            github_raw_url = None
+            github_get_status = None
+
+            try:
+                b_base = (os.getenv("BLOB_BASE_URL") or "").rstrip("/")
+                b_key = (os.getenv("BLOB_JSON_KEY") or "").strip()
+                if b_base and b_key:
+                    blob_url = f"{b_base}/{urllib.parse.quote(b_key, safe='')}"
+                    req = urllib.request.Request(blob_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        blob_get_status = resp.getcode()
+            except urllib.error.HTTPError as he:
+                blob_get_status = he.code
+            except Exception:
+                pass
+
+            try:
+                owner = (os.getenv("GITHUB_REPO_OWNER") or "").strip()
+                repo = (os.getenv("GITHUB_REPO") or "").strip()
+                branch = (os.getenv("GITHUB_BRANCH") or "").strip()
+                path = (os.getenv("GITHUB_JSON_FILE_PATH") or "").strip()
+                if owner and repo and branch and path:
+                    github_raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+                    req = urllib.request.Request(github_raw_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        github_get_status = resp.getcode()
+            except urllib.error.HTTPError as he:
+                github_get_status = he.code
+            except Exception:
+                pass
+
             _json_response(self, 500, {
                 "ok": False,
                 "error": f"Failed to read store: {str(e)}",
                 "blob": {
                     "configured": len(missing_blob) == 0,
-                    "missing": missing_blob
+                    "missing": missing_blob,
+                    "probe": {
+                        "blob_url": blob_url,
+                        "blob_get_status": blob_get_status
+                    }
                 },
                 "github": {
                     "configured": len(missing_github) == 0,
-                    "missing": missing_github
+                    "missing": missing_github,
+                    "probe": {
+                        "github_raw_url": github_raw_url,
+                        "github_get_status": github_get_status
+                    }
                 },
                 "env_preview": env_preview,
                 "notes": [
-                    "Verify Blob values (URL/token/key) are correct and reachable.",
-                    "If Blob is empty, the server will try to bootstrap from the GitHub JSON snapshot on next request.",
-                    "Verify GitHub values and that the JSON file exists in the repository."
+                    "If blob_get_status is 404 and github_get_status is 200, bootstrap should succeed on next request.",
+                    "If github_get_status is 404, the JSON file path/name is wrong or missing.",
+                    "If blob_get_status is not 200/404, verify BLOB_BASE_URL domain and permissions."
                 ]
             })
 
