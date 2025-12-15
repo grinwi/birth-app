@@ -4,7 +4,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from _github import (
     create_pr_with_json,
@@ -98,6 +98,15 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     handler.wfile.write(data)
 
 
+def _text_response(handler: BaseHTTPRequestHandler, status: int, text: str):
+    data = (text or "").encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/plain; charset=utf-8")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Reading data does NOT require auth; this allows the UI to bootstrap transparently.
@@ -106,6 +115,8 @@ class handler(BaseHTTPRequestHandler):
             _json_response(self, 200, {"data": rows, "count": len(rows)})
         except Exception as e:
             # Provide detailed diagnostics, including redacted values, plus live probes, to identify misconfiguration
+            qs = parse_qs(urlparse(self.path).query or "")
+            wants_text = "debug" in qs or (qs.get("format") == ["text"])
             blob_vars = ["BLOB_BASE_URL", "BLOB_READ_WRITE_TOKEN", "BLOB_JSON_KEY"]
             github_vars = ["GITHUB_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO", "GITHUB_BRANCH", "GITHUB_JSON_FILE_PATH"]
 
@@ -168,7 +179,7 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-            _json_response(self, 500, {
+            payload = {
                 "ok": False,
                 "error": f"Failed to read store: {str(e)}",
                 "blob": {
@@ -193,7 +204,31 @@ class handler(BaseHTTPRequestHandler):
                     "If github_get_status is 404, the JSON file path/name is wrong or missing.",
                     "If blob_get_status is not 200/404, verify BLOB_BASE_URL domain and permissions."
                 ]
-            })
+            }
+            if wants_text:
+                lines = [
+                    f"error: {payload['error']}",
+                    f"blob.configured: {payload['blob']['configured']}",
+                    f"blob.missing: {', '.join(payload['blob']['missing']) or '-'}",
+                    f"blob.probe.url: {payload['blob']['probe']['blob_url']}",
+                    f"blob.probe.status: {payload['blob']['probe']['blob_get_status']}",
+                    f"github.configured: {payload['github']['configured']}",
+                    f"github.missing: {', '.join(payload['github']['missing']) or '-'}",
+                    f"github.probe.url: {payload['github']['probe']['github_raw_url']}",
+                    f"github.probe.status: {payload['github']['probe']['github_get_status']}",
+                    "env_preview:",
+                    f"  BLOB_BASE_URL: {env_preview['BLOB_BASE_URL']}",
+                    f"  BLOB_READ_WRITE_TOKEN: {env_preview['BLOB_READ_WRITE_TOKEN']}",
+                    f"  BLOB_JSON_KEY: {env_preview['BLOB_JSON_KEY']}",
+                    f"  GITHUB_TOKEN: {env_preview['GITHUB_TOKEN']}",
+                    f"  GITHUB_REPO_OWNER: {env_preview['GITHUB_REPO_OWNER']}",
+                    f"  GITHUB_REPO: {env_preview['GITHUB_REPO']}",
+                    f"  GITHUB_BRANCH: {env_preview['GITHUB_BRANCH']}",
+                    f"  GITHUB_JSON_FILE_PATH: {env_preview['GITHUB_JSON_FILE_PATH']}",
+                ]
+                _text_response(self, 500, "\n".join(lines))
+            else:
+                _json_response(self, 500, payload)
 
     def do_POST(self):
         # Mutations still require auth
