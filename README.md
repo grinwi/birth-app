@@ -8,7 +8,7 @@ KV remains as a fallback (optional) if Blob is not configured yet.
 
 CSV exists only as a PR-managed artifact. The live data is in Blob (`birthdays.json`). When a change happens (add/update/delete), the backend:
 1) Writes the updated rows to Blob (JSON).
-2) Generates `birthdays.csv` from those rows and opens a PR against your GitHub repo for review/history.
+2) Generates both `birthdays.json` (pretty, canonical backup) and `birthdays.csv` (tabular) from those rows and opens a PR against your GitHub repo for review/history.
 
 ## Backend endpoints (Python)
 
@@ -48,6 +48,8 @@ Required for GitHub PRs (CSV mirror)
   - Example: `main`
 - GITHUB_FILE_PATH
   - Example: `birthdays.csv`
+- GITHUB_JSON_FILE_PATH
+  - Example: `birthdays.json` (JSON snapshot committed alongside CSV)
 
 Required for Auth / Admin bootstrap
 - AUTH_SECRET
@@ -71,6 +73,18 @@ Optional
    - Create a **Read/Write Token** under “Settings → Tokens” → set as `BLOB_READ_WRITE_TOKEN`.
 3) Optionally set `BLOB_JSON_KEY` if you want a custom filename/path (default is `birthdays.json`).
 4) Add these to your Vercel project’s Env Vars. For local dev, mirror them in `.env.local`.
+
+## Data flow and fallback
+
+- On each mutation, the backend writes the updated rows to Vercel Blob (JSON) and opens a GitHub PR that commits BOTH:
+  - JSON (path: `GITHUB_JSON_FILE_PATH`, pretty-printed) for canonical backup/restore
+  - CSV (path: `GITHUB_FILE_PATH`) for audit/review and easy diff
+- Read order at runtime:
+  1) Blob (JSON)
+  2) GitHub JSON (raw file in the repo)
+  3) GitHub CSV (parsed)
+  4) KV (if configured)
+- This ensures GitHub acts as a durable backup/source of truth if Blob is missing or cleared; restoring is as simple as merging JSON in Git and redeploying.
 
 ## Local development
 

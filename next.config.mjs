@@ -9,10 +9,11 @@ const nextConfig = {
       { source: '/api-py/health', destination: '/api/health.py' },
       { source: '/api-py/people', destination: '/api/people.py' },
       { source: '/api-py/people/:index', destination: '/api/people_index.py?index=:index' },
-      { source: '/api-py/csv', destination: '/api/csv.py' },
+      { source: '/api-py/json', destination: '/api/json.py' },
       { source: '/api-py/auth/login', destination: '/api/auth/login.py' },
       { source: '/api-py/auth/invite', destination: '/api/auth/invite.py' },
-      { source: '/api-py/auth/register', destination: '/api/auth/register.py' }
+      { source: '/api-py/auth/register', destination: '/api/auth/register.py' },
+      { source: '/api-py/sync', destination: '/api/sync.py' }
     ];
   }
 };

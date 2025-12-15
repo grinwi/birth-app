@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler
 from _csv import parse_csv, to_csv
 from _kv import get_rows as kv_get_rows, set_rows as kv_set_rows
 from _github import (
-  create_pr_with_csv,
+  create_pr_with_json,
 )
 from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
@@ -96,9 +96,8 @@ class handler(BaseHTTPRequestHandler):
         rows = parse_csv(csv_text)
 
       store_set_rows(rows)
-      new_csv = to_csv(rows) + "\n"
       try:
-        pr_number, pr_url = create_pr_with_csv(new_csv, title="Update birthdays.csv via UI")
+        pr_number, pr_url = create_pr_with_json(rows, title="Update birthdays via UI")
       except Exception as pe:
         _json_response(self, 200, {"ok": True, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
         return

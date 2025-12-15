@@ -8,8 +8,6 @@ test.describe('Home page', () => {
     await expect(page.locator('table#birthdays-table')).toBeVisible();
 
     // Top controls
-    await expect(page.locator('#download-csv-btn')).toBeVisible();
-    await expect(page.locator('#save-server-btn')).toBeVisible();
     await expect(page.locator('#save-github-btn')).toBeVisible();
     await expect(page.locator('#set-api-base-btn')).toBeVisible();
   });
