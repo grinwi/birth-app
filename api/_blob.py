@@ -16,6 +16,7 @@ BLOB_READ_WRITE_TOKEN = os.getenv("BLOB_READ_WRITE_TOKEN") or ""
 BLOB_JSON_KEY = os.getenv("BLOB_JSON_KEY") or "birthdays.json"
 
 
+
 class BlobError(RuntimeError):
     pass
 
