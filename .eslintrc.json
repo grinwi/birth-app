@@ -6,17 +6,24 @@
     "es2021": true,
     "jest": true
   },
-  "extends": [
-    "eslint:recommended",
-    "plugin:sonarjs/recommended"
-  ],
-  "plugins": [
-    "sonarjs"
-  ],
+  "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",
-    "sourceType": "script"
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
   },
+  "plugins": [
+    "@typescript-eslint",
+    "sonarjs"
+  ],
+  "extends": [
+    "next/core-web-vitals",
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:sonarjs/recommended"
+  ],
   "ignorePatterns": [
     "node_modules/",
     "dist/",
@@ -26,6 +33,9 @@
   ],
   "rules": {
     "no-console": "off",
-    "sonarjs/cognitive-complexity": ["warn", 20]
+    "sonarjs/cognitive-complexity": [
+      "warn",
+      20
+    ]
   }
 }
