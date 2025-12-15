@@ -6,16 +6,8 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from _github import (
-    create_pr_with_json,
-    fetch_raw_json,
-    GITHUB_OWNER,
-    GITHUB_REPO,
-    GITHUB_BRANCH,
-    GITHUB_JSON_FILE_PATH,
-)
+# Lazy-import _github only where needed to avoid module import errors at cold start
 from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
-from _auth import get_user_from_headers
 
 
 def normalize_row(row: dict) -> dict:
@@ -53,21 +45,35 @@ def validate_row(row: dict) -> None:
 
 def _bootstrap_blob_from_github_if_empty() -> list:
     """
-    If Blob is configured but currently empty or invalid, try to read JSON
-    from the repository (GITHUB_JSON_FILE_PATH) and write it into Blob.
+    If Blob is configured but currently empty or invalid, fetch JSON from GitHub
+    (using env: GITHUB_REPO_OWNER/REPO/BRANCH/GITHUB_JSON_FILE_PATH) and write it into Blob.
     Returns the rows read (possibly empty).
     """
-    raw = fetch_raw_json(GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, GITHUB_JSON_FILE_PATH)
-    if not raw:
+    owner = (os.getenv("GITHUB_REPO_OWNER") or "").strip()
+    repo = (os.getenv("GITHUB_REPO") or "").strip()
+    branch = (os.getenv("GITHUB_BRANCH") or "").strip()
+    path = (os.getenv("GITHUB_JSON_FILE_PATH") or "").strip()
+    if not (owner and repo and branch and path):
+        return []
+    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+    try:
+        req = urllib.request.Request(raw_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            text = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as he:
+        if he.code == 404:
+            return []
+        return []
+    except Exception:
         return []
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(text)
         if isinstance(parsed, list):
             # Persist to Blob and return
             blob_set_json(parsed)
             return parsed
     except Exception:
-        pass
+        return []
     return []
 
 
@@ -377,7 +383,12 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         # Mutations still require auth
-        user = get_user_from_headers(self.headers)
+        try:
+            from _auth import get_user_from_headers as _get_user_from_headers
+        except Exception as ie:
+            _json_response(self, 500, {"error": f"Auth module import failed: {str(ie)}"})
+            return
+        user = _get_user_from_headers(self.headers)
         if not user:
             _json_response(self, 401, {"error": "Unauthorized"})
             return
@@ -403,6 +414,7 @@ class handler(BaseHTTPRequestHandler):
 
             # Create PR with JSON only
             try:
+                from _github import create_pr_with_json
                 pr_number, pr_url = create_pr_with_json(rows, title="Add person via UI")
             except Exception as pe:
                 # If PR fails, still return the updated data so UI updates; but indicate failure
