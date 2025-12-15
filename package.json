@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix"
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "repository": {
     "type": "git",
@@ -34,6 +37,7 @@
   "devDependencies": {
     "@types/node": "25.0.2",
     "@types/react": "19.2.7",
+    "@playwright/test": "^1.49.0",
     "eslint": "^8.57.0",
     "eslint-plugin-sonarjs": "^0.23.0",
     "typescript": "5.9.3"
