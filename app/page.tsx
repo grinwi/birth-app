@@ -23,12 +23,6 @@ type Period =
   | 'this-year'
   | 'next-year';
 
-// Public GitHub CSV fallback (read-only)
-const GH_OWNER = 'grinwi';
-const GH_REPO = 'birth-app';
-const GH_BRANCH = 'main';
-const GH_FILE_PATH = 'birthdays.csv';
-const GITHUB_CSV_URL = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_BRANCH}/${GH_FILE_PATH}`;
 
 const HEADER_KEYS: (keyof Row)[] = ['first_name', 'last_name', 'day', 'month', 'year'];
 
@@ -36,75 +30,8 @@ function ensureString(v: unknown) {
   return v == null ? '' : String(v).trim();
 }
 
-function splitCsvLine(line: string) {
-  const result: string[] = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        result.push(cur);
-        cur = '';
-      } else {
-        cur += ch;
-      }
-    }
-  }
-  result.push(cur);
-  return result;
-}
 
-function parseCSV(csvText: string): Row[] {
-  const text = ensureString(csvText).trim();
-  if (!text) return [];
-  const lines = text.split(/\r?\n/);
-  if (!lines.length) return [];
-  const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
-  const matchesHeader =
-    header.length === HEADER_KEYS.length && HEADER_KEYS.every((k, i) => header[i] === k);
-  const startIdx = matchesHeader ? 1 : 0;
-  const rows: Row[] = [];
-  for (let i = startIdx; i < lines.length; i++) {
-    const raw = lines[i].trim();
-    if (!raw) continue;
-    const values = splitCsvLine(raw);
-    const obj: Record<string, string> = {};
-    HEADER_KEYS.forEach((key, idx) => {
-      obj[key] = (values[idx] ?? '').trim().replace(/^"|"$/g, '').replace(/""/g, '"');
-    });
-    rows.push(obj as Row);
-  }
-  return rows;
-}
 
-function toCSV(rows: Row[]) {
-  const header = HEADER_KEYS.join(',');
-  const body = rows.map((r0) => {
-    const r: Row = {
-      first_name: ensureString(r0.first_name),
-      last_name: ensureString(r0.last_name),
-      day: ensureString(r0.day),
-      month: ensureString(r0.month),
-      year: ensureString(r0.year),
-    };
-    return HEADER_KEYS.map((k) => `"${r[k].replace(/"/g, '""')}"`).join(',');
-  });
-  return [header, ...body].join('\n');
-}
 
 function getPeriodRange(period: Exclude<Period, 'all'>) {
   const today = new Date();
@@ -267,16 +194,6 @@ export default function Page() {
       } catch {
         if (!aborted) setBackendReachable(false);
       }
-      // Fallback to GitHub CSV
-      try {
-        const response = await fetch(GITHUB_CSV_URL, { cache: 'no-store' });
-        if (!response.ok) throw new Error('Failed to load CSV from GitHub');
-        const csvText = await response.text();
-        if (!aborted) setRows(parseCSV(csvText));
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading CSV from GitHub:', e);
-      }
     }
     load();
     return () => {
@@ -358,7 +275,7 @@ export default function Page() {
 
   const backendStatusText = backendReachable
     ? `Backend OK: ${apiBase}`
-    : `Backend unavailable, using read-only CSV (${GITHUB_CSV_URL})`;
+    : `Backend unavailable`;
 
   const backendStatusColor = backendReachable ? '#2c7' : '#c72';
 
@@ -487,72 +404,32 @@ export default function Page() {
     }
   }
 
-  function downloadCSV() {
-    if (!rows.length) {
-      alert('No data to download.');
-      return;
-    }
-    const csvStr = toCSV(rows);
-    const blob = new Blob([csvStr], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'birthdays.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
 
-  async function saveCSVToServer() {
+
+  async function saveToGitHub() {
     if (!rows.length) {
       alert('No data to save.');
       return;
     }
-    const csvStr = toCSV(rows);
     try {
-      const res = await fetch(`${apiBase}/csv`, {
+      const res = await fetch(`${apiBase}/json`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/csv' },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: csvStr,
-      });
-      if (res.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!res.ok) throw new Error(await res.text());
-      alert('CSV saved successfully!');
-    } catch (e: any) {
-      alert(`Failed to save CSV to server. ${e?.message || ''}`);
-    }
-  }
-
-  async function saveCSVToGitHub() {
-    if (!rows.length) {
-      alert('No data to save.');
-      return;
-    }
-    const csvStr = toCSV(rows);
-    try {
-      const res = await fetch(`${apiBase}/csv`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/csv' },
-        credentials: 'include',
-        body: csvStr,
+        body: JSON.stringify({ data: rows }),
       });
       if (res.status === 401) {
         window.location.href = '/login';
         return;
       }
       if (res.status === 403) {
-        alert('Forbidden: admin required to push CSV to GitHub.');
+        alert('Forbidden: admin required to push to GitHub.');
         return;
       }
       if (!res.ok) throw new Error(await res.text());
-      alert('Change submitted to GitHub (PR created).');
+      alert('Change submitted to GitHub (JSON PR created).');
     } catch (e) {
-      alert('Failed to push CSV to GitHub.');
+      alert('Failed to push data to GitHub.');
     }
   }
 
@@ -593,19 +470,6 @@ export default function Page() {
         {backendStatusText}
       </p>
 
-      <input
-        type="file"
-        accept=".csv"
-        onChange={async (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-          const text = await file.text();
-          setRows(parseCSV(text));
-          setActivePeriod('all');
-          setModulo('none');
-          setCurrentSort([]);
-        }}
-      />
 
       <div className="filters">
         {periodBtn('all-btn', 'ALL', 'all')}
@@ -765,9 +629,7 @@ export default function Page() {
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button id="add-row-btn" onClick={handleAddRow}>Add Row</button>
-        <button id="download-csv-btn" onClick={downloadCSV}>Download CSV</button>
-        <button id="save-server-btn" onClick={saveCSVToServer}>Save to Server</button>
-        <button id="save-github-btn" onClick={saveCSVToGitHub}>Save to GitHub</button>
+        <button id="save-github-btn" onClick={saveToGitHub}>Save to GitHub</button>
         <button id="set-api-base-btn" onClick={setBackendUrl}>Set Backend URL</button>
       </div>
     </div>

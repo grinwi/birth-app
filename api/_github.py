@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 GITHUB_OWNER = os.getenv("GITHUB_REPO_OWNER", "grinwi")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "birth-app")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
-GITHUB_FILE_PATH = os.getenv("GITHUB_FILE_PATH", "birthdays.csv")
+GITHUB_JSON_FILE_PATH = os.getenv("GITHUB_JSON_FILE_PATH", "birthdays.json")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("BIRTHDAY_APP_EDIT_CSV_TOKEN")
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -117,7 +117,7 @@ def open_pr(owner: str, repo: str, head: str, base: str, title: str, body: str) 
     return data.get("number"), data.get("html_url")
 
 
-def fetch_raw_csv(owner: str, repo: str, branch: str, path: str) -> str:
+def fetch_raw_json(owner: str, repo: str, branch: str, path: str) -> str:
     url = f"{RAW_BASE}/{owner}/{repo}/{branch}/{path}"
     req = urllib.request.Request(url, method="GET", headers={"User-Agent": "birthdays-app-python"})
     try:
@@ -125,22 +125,35 @@ def fetch_raw_csv(owner: str, repo: str, branch: str, path: str) -> str:
             return resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            # Treat missing as empty CSV with header
             return ""
         raise
     except urllib.error.URLError as e:
-        raise RuntimeError(f"Network error fetching raw CSV: {e}")
+        raise RuntimeError(f"Network error fetching raw JSON: {e}")
 
 
-def create_pr_with_csv(new_csv_text: str, title: str, body: str = "") -> Tuple[int, str]:
+def create_pr_with_json(rows, title: str, body: str = "") -> Tuple[int, str]:
+    """
+    Commit ONLY the JSON representation to GitHub in a single-file PR.
+    JSON path is GITHUB_JSON_FILE_PATH.
+    """
     owner = GITHUB_OWNER
     repo = GITHUB_REPO
     base = GITHUB_BRANCH
-    path = GITHUB_FILE_PATH
+    json_path = GITHUB_JSON_FILE_PATH
 
+    # Serialize JSON payload
+    json_text = json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
+
+    # Prepare branch
     base_sha = get_base_sha(owner, repo, base)
     branch_name = create_branch(owner, repo, base_sha, preferred_name=f"update-birthdays-{time.strftime('%Y%m%d%H%M%S')}")
-    file_sha = get_file_sha(owner, repo, path, branch_name)
-    put_file(owner, repo, path, branch_name, new_csv_text, message=title, sha=file_sha)
-    pr_number, pr_url = open_pr(owner, repo, branch_name, base, title=title, body=body or "Automated update of birthdays.csv")
+
+    # Get current SHA (if existing)
+    json_sha = get_file_sha(owner, repo, json_path, branch_name)
+
+    # Update JSON file
+    put_file(owner, repo, json_path, branch_name, json_text, message=title, sha=json_sha)
+
+    # Open PR
+    pr_number, pr_url = open_pr(owner, repo, branch_name, base, title=title, body=body or "Automated update of birthdays JSON")
     return pr_number, pr_url

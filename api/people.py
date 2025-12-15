@@ -2,24 +2,22 @@ import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
-from _csv import to_csv, normalize_row, validate_row
-from _kv import get_rows as kv_get_rows, set_rows as kv_set_rows
-from _github import create_pr_with_csv
+from _csv import normalize_row, validate_row
+from _github import create_pr_with_json
 from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
 
 
 def store_get_rows():
-    if is_blob_configured():
-        data = blob_get_json(default=[])
-        return data if isinstance(data, list) else []
-    return kv_get_rows()
+    if not is_blob_configured():
+        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+    data = blob_get_json(default=[])
+    return data if isinstance(data, list) else []
 
 def store_set_rows(rows):
-    if is_blob_configured():
-        blob_set_json(rows)
-        return
-    kv_set_rows(rows)
+    if not is_blob_configured():
+        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+    blob_set_json(rows)
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     data = json.dumps(payload).encode("utf-8")
@@ -67,10 +65,9 @@ class handler(BaseHTTPRequestHandler):
             rows.append(normalize_row(payload))
             store_set_rows(rows)
 
-            # Create PR with updated CSV
-            new_csv = to_csv(rows) + "\n"
+            # Create PR with JSON only
             try:
-                pr_number, pr_url = create_pr_with_csv(new_csv, title="Add person via UI")
+                pr_number, pr_url = create_pr_with_json(rows, title="Add person via UI")
             except Exception as pe:
                 # If PR fails, still return the updated data so UI updates; but indicate failure
                 _json_response(self, 201, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
