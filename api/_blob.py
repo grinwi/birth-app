@@ -64,7 +64,8 @@ def get_json(key: Optional[str] = None, default: Any = None) -> Any:
             return json.loads(text)
         except Exception:
             return default
-    if status == 404:
+    if status in (404, 403):
+        # Treat 403 similar to missing for public buckets to allow bootstrap
         return default
     raise BlobError(f"Blob GET failed: {status} {data.decode('utf-8', 'ignore')}")
 
@@ -72,14 +73,41 @@ def get_json(key: Optional[str] = None, default: Any = None) -> Any:
 def set_json(value: Any, key: Optional[str] = None) -> None:
     """
     Write JSON document to Blob.
+    Tries multiple strategies for compatibility with different Blob configurations.
     """
     if not is_blob_configured():
         raise BlobError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
     k = key or BLOB_JSON_KEY
-    url = f"{BLOB_BASE_URL}/{urllib.parse.quote(k, safe='')}"
+    base = BLOB_BASE_URL.rstrip("/")
+    path = urllib.parse.quote(k, safe="")
     payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
-    # Attempt PUT to the public bucket endpoint with Bearer token.
-    # Some configurations may require a different API for write; adjust if needed.
-    status, data = _request("PUT", url, body=payload, write=True)
-    if status not in (200, 201):
-        raise BlobError(f"Blob PUT failed: {status} {data.decode('utf-8', 'ignore')}")
+
+    attempts = []
+
+    # Attempt 1: PUT with Authorization header to the public bucket URL
+    url1 = f"{base}/{path}"
+    status1, data1 = _request("PUT", url1, body=payload, write=True)
+    if status1 in (200, 201):
+        return
+    attempts.append(f"{status1} @ {url1}: {data1.decode('utf-8', 'ignore')}")
+
+    # Attempt 2: PUT with token as query parameter (some setups accept ?token=)
+    if BLOB_READ_WRITE_TOKEN:
+        url2 = f"{url1}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+        status2, data2 = _request("PUT", url2, body=payload, write=False)  # no auth header
+        if status2 in (200, 201):
+            return
+        attempts.append(f"{status2} @ {url2}: {data2.decode('utf-8', 'ignore')}")
+
+    # Attempt 3: PUT to generic upload host (compat fallback)
+    try:
+        if BLOB_READ_WRITE_TOKEN:
+            url3 = f"https://blob.vercel-storage.com/{path}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+            status3, data3 = _request("PUT", url3, body=payload, write=False)
+            if status3 in (200, 201):
+                return
+            attempts.append(f"{status3} @ https://blob.vercel-storage.com/{path}: {data3.decode('utf-8', 'ignore')}")
+    except Exception as e:
+        attempts.append(f"fallback error: {e}")
+
+    raise BlobError("Blob PUT failed; attempts: " + " | ".join(attempts))

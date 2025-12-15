@@ -110,6 +110,151 @@ def _text_response(handler: BaseHTTPRequestHandler, status: int, text: str):
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Reading data does NOT require auth; this allows the UI to bootstrap transparently.
+        qs = parse_qs(urlparse(self.path).query or "")
+        # On-demand diagnostics (always returns text 200 without attempting store access)
+        if "diag" in qs or (qs.get("format") == ["text"]):
+            blob_vars = ["BLOB_BASE_URL", "BLOB_READ_WRITE_TOKEN", "BLOB_JSON_KEY"]
+            github_vars = ["GITHUB_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO", "GITHUB_BRANCH", "GITHUB_JSON_FILE_PATH"]
+
+            def _redact(name: str, secret: bool = False) -> str:
+                v = (os.getenv(name) or "").strip()
+                if not v:
+                    return ""
+                if not secret:
+                    return v
+                n = len(v)
+                if n <= 8:
+                    return f"<redacted:{n}>"
+                return f"{v[:4]}…{v[-4:]} (len={n})"
+
+            env_preview = {
+                "BLOB_BASE_URL": _redact("BLOB_BASE_URL"),
+                "BLOB_READ_WRITE_TOKEN": _redact("BLOB_READ_WRITE_TOKEN", secret=True),
+                "BLOB_JSON_KEY": _redact("BLOB_JSON_KEY"),
+                "GITHUB_TOKEN": _redact("GITHUB_TOKEN", secret=True),
+                "GITHUB_REPO_OWNER": _redact("GITHUB_REPO_OWNER"),
+                "GITHUB_REPO": _redact("GITHUB_REPO"),
+                "GITHUB_BRANCH": _redact("GITHUB_BRANCH"),
+                "GITHUB_JSON_FILE_PATH": _redact("GITHUB_JSON_FILE_PATH"),
+            }
+
+            # Live probes
+            blob_url = None
+            blob_get_status = None
+            github_raw_url = None
+            github_get_status = None
+
+            try:
+                b_base = (os.getenv("BLOB_BASE_URL") or "").rstrip("/")
+                b_key = (os.getenv("BLOB_JSON_KEY") or "").strip()
+                if b_base and b_key:
+                    blob_url = f"{b_base}/{urllib.parse.quote(b_key, safe='')}"
+                    req = urllib.request.Request(blob_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        blob_get_status = resp.getcode()
+            except urllib.error.HTTPError as he:
+                blob_get_status = he.code
+            except Exception:
+                pass
+
+            try:
+                owner = (os.getenv("GITHUB_REPO_OWNER") or "").strip()
+                repo = (os.getenv("GITHUB_REPO") or "").strip()
+                branch = (os.getenv("GITHUB_BRANCH") or "").strip()
+                path = (os.getenv("GITHUB_JSON_FILE_PATH") or "").strip()
+                if owner and repo and branch and path:
+                    github_raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+                    req = urllib.request.Request(github_raw_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        github_get_status = resp.getcode()
+            except urllib.error.HTTPError as he:
+                github_get_status = he.code
+            except Exception:
+                pass
+
+            lines = [
+                "diag: on-demand status",
+                f"blob.url: {blob_url}",
+                f"blob.status: {blob_get_status}",
+                f"github.url: {github_raw_url}",
+                f"github.status: {github_get_status}",
+                "env_preview:",
+                f"  BLOB_BASE_URL: {env_preview['BLOB_BASE_URL']}",
+                f"  BLOB_READ_WRITE_TOKEN: {env_preview['BLOB_READ_WRITE_TOKEN']}",
+                f"  BLOB_JSON_KEY: {env_preview['BLOB_JSON_KEY']}",
+                f"  GITHUB_TOKEN: {env_preview['GITHUB_TOKEN']}",
+                f"  GITHUB_REPO_OWNER: {env_preview['GITHUB_REPO_OWNER']}",
+                f"  GITHUB_REPO: {env_preview['GITHUB_REPO']}",
+                f"  GITHUB_BRANCH: {env_preview['GITHUB_BRANCH']}",
+                f"  GITHUB_JSON_FILE_PATH: {env_preview['GITHUB_JSON_FILE_PATH']}",
+                "",
+                "Hints:",
+                "- blob.status 200 => object exists; 404 => empty/missing; other => domain/permission issue.",
+                "- github.status 200 => repo JSON reachable; 404 => wrong path/name or missing file.",
+                "- If blob is 404 and github is 200, the server should auto-bootstrap on next read."
+            ]
+            _text_response(self, 200, "\n".join(lines))
+            return
+
+        # Force bootstrap from GitHub into Blob (manual trigger for diagnostics)
+        if "force_bootstrap" in qs:
+            # Build probe URLs
+            b_base = (os.getenv("BLOB_BASE_URL") or "").rstrip("/")
+            b_key = (os.getenv("BLOB_JSON_KEY") or "").strip()
+            owner = (os.getenv("GITHUB_REPO_OWNER") or "").strip()
+            repo = (os.getenv("GITHUB_REPO") or "").strip()
+            branch = (os.getenv("GITHUB_BRANCH") or "").strip()
+            path = (os.getenv("GITHUB_JSON_FILE_PATH") or "").strip()
+
+            blob_url = f"{b_base}/{urllib.parse.quote(b_key, safe='')}" if b_base and b_key else None
+            github_raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}" if owner and repo and branch and path else None
+
+            # Try fetching GitHub JSON and writing to Blob
+            try:
+                raw = None
+                gh_status = None
+                if github_raw_url:
+                    req = urllib.request.Request(github_raw_url, method="GET", headers={"User-Agent": "birthdays-app-python"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        gh_status = resp.getcode()
+                        raw = resp.read().decode("utf-8")
+
+                if raw:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        try:
+                            blob_set_json(parsed)
+                            _text_response(self, 200, "\n".join([
+                                "force_bootstrap: OK",
+                                f"blob.url: {blob_url}",
+                                f"github.url: {github_raw_url}",
+                                f"rows: {len(parsed)}"
+                            ]))
+                            return
+                        except Exception as be:
+                            _text_response(self, 500, "\n".join([
+                                "force_bootstrap: failed writing to Blob",
+                                f"error: {str(be)}",
+                                f"blob.url: {blob_url}",
+                                f"github.url: {github_raw_url}"
+                            ]))
+                            return
+
+                _text_response(self, 500, "\n".join([
+                    "force_bootstrap: failed to load GitHub JSON or invalid format",
+                    f"blob.url: {blob_url}",
+                    f"github.url: {github_raw_url}"
+                ]))
+                return
+            except Exception as e2:
+                _text_response(self, 500, "\n".join([
+                    "force_bootstrap: unexpected error",
+                    f"error: {str(e2)}",
+                    f"blob.url: {blob_url}",
+                    f"github.url: {github_raw_url}"
+                ]))
+                return
+
         try:
             rows = store_get_rows()
             _json_response(self, 200, {"data": rows, "count": len(rows)})
