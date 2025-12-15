@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/**/*.py": { "runtime": "python3.11" }
-  },
   "rewrites": [
     { "source": "/api-py/health", "destination": "/api/health.py" },
     { "source": "/api-py/people", "destination": "/api/people.py" },
