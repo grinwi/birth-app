@@ -2,10 +2,67 @@ import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from _csv import normalize_row, validate_row
-from _github import create_pr_with_json
+from _github import (
+    create_pr_with_json,
+    fetch_raw_json,
+    GITHUB_OWNER,
+    GITHUB_REPO,
+    GITHUB_BRANCH,
+    GITHUB_JSON_FILE_PATH,
+)
 from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
+
+
+def normalize_row(row: dict) -> dict:
+    return {
+        "first_name": (row.get("first_name") or "").strip(),
+        "last_name": (row.get("last_name") or "").strip(),
+        "day": (row.get("day") or "").strip(),
+        "month": (row.get("month") or "").strip(),
+        "year": (row.get("year") or "").strip(),
+    }
+
+
+def validate_row(row: dict) -> None:
+    r = normalize_row(row)
+    if not r["first_name"]:
+        raise ValueError("first_name is required")
+    if not r["last_name"]:
+        raise ValueError("last_name is required")
+    try:
+        d = int(r["day"])
+        m = int(r["month"])
+        y = int(r["year"])
+    except Exception:
+        raise ValueError("day/month/year must be integers")
+    if d < 1 or d > 31:
+        raise ValueError("day must be 1-31")
+    if m < 1 or m > 12:
+        raise ValueError("month must be 1-12")
+    if y < 1900 or y > 3000:
+        raise ValueError("year must be a realistic year (1900..3000)")
+    import datetime
+    _ = datetime.date(y, m, d)
+
+
+def _bootstrap_blob_from_github_if_empty() -> list:
+    """
+    If Blob is configured but currently empty or invalid, read JSON
+    from the repository (GITHUB_JSON_FILE_PATH) and write it into Blob.
+    Returns the rows read (possibly empty).
+    """
+    raw = fetch_raw_json(GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, GITHUB_JSON_FILE_PATH)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            blob_set_json(parsed)
+            return parsed
+    except Exception:
+        pass
+    return []
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
@@ -20,8 +77,12 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
 def store_get_rows():
     if not is_blob_configured():
         raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
-    data = blob_get_json(default=[])
-    return data if isinstance(data, list) else []
+    data = blob_get_json(default=None)
+    if isinstance(data, list):
+        return data
+    # Attempt automatic bootstrap from GitHub JSON if Blob is empty/missing
+    rows = _bootstrap_blob_from_github_if_empty()
+    return rows
 
 
 def store_set_rows(rows):
