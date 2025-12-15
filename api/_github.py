@@ -12,7 +12,7 @@ GITHUB_OWNER = os.getenv("GITHUB_REPO_OWNER", "grinwi")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "birth-app")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 GITHUB_JSON_FILE_PATH = os.getenv("GITHUB_JSON_FILE_PATH", "birthdays.json")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("BIRTHDAY_APP_EDIT_CSV_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or ""
 
 GITHUB_API_BASE = "https://api.github.com"
 RAW_BASE = "https://raw.githubusercontent.com"
@@ -20,7 +20,7 @@ RAW_BASE = "https://raw.githubusercontent.com"
 
 def _headers_json() -> dict:
     if not GITHUB_TOKEN:
-        raise RuntimeError("Missing GITHUB_TOKEN or BIRTHDAY_APP_EDIT_CSV_TOKEN")
+        raise RuntimeError("Missing GITHUB_TOKEN")
     return {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
