@@ -6,7 +6,22 @@ from _kv import get_rows as kv_get_rows, set_rows as kv_set_rows
 from _github import (
   create_pr_with_csv,
 )
+from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
+
+
+def store_get_rows():
+  if is_blob_configured():
+    data = blob_get_json(default=[])
+    return data if isinstance(data, list) else []
+  return kv_get_rows()
+
+
+def store_set_rows(rows):
+  if is_blob_configured():
+    blob_set_json(rows)
+    return
+  kv_set_rows(rows)
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
@@ -35,7 +50,7 @@ class handler(BaseHTTPRequestHandler):
       _text_response(self, 401, "Unauthorized", "text/plain; charset=utf-8")
       return
     try:
-      rows = kv_get_rows()
+      rows = store_get_rows()
       csv_text = to_csv(rows) + "\n"
       _text_response(self, 200, csv_text, "text/csv; charset=utf-8")
     except Exception as e:
@@ -80,7 +95,7 @@ class handler(BaseHTTPRequestHandler):
           return
         rows = parse_csv(csv_text)
 
-      kv_set_rows(rows)
+      store_set_rows(rows)
       new_csv = to_csv(rows) + "\n"
       try:
         pr_number, pr_url = create_pr_with_csv(new_csv, title="Update birthdays.csv via UI")

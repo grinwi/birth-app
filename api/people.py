@@ -5,8 +5,21 @@ from urllib.parse import urlparse
 from _csv import to_csv, normalize_row, validate_row
 from _kv import get_rows as kv_get_rows, set_rows as kv_set_rows
 from _github import create_pr_with_csv
+from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
 
+
+def store_get_rows():
+    if is_blob_configured():
+        data = blob_get_json(default=[])
+        return data if isinstance(data, list) else []
+    return kv_get_rows()
+
+def store_set_rows(rows):
+    if is_blob_configured():
+        blob_set_json(rows)
+        return
+    kv_set_rows(rows)
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     data = json.dumps(payload).encode("utf-8")
@@ -24,7 +37,7 @@ class handler(BaseHTTPRequestHandler):
             _json_response(self, 401, {"error": "Unauthorized"})
             return
         try:
-            rows = kv_get_rows()
+            rows = store_get_rows()
             _json_response(self, 200, {"data": rows, "count": len(rows)})
         except Exception as e:
             _json_response(self, 500, {"error": f"Failed to read store: {str(e)}"})
@@ -50,9 +63,9 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             # Load current rows from KV and append
-            rows = kv_get_rows()
+            rows = store_get_rows()
             rows.append(normalize_row(payload))
-            kv_set_rows(rows)
+            store_set_rows(rows)
 
             # Create PR with updated CSV
             new_csv = to_csv(rows) + "\n"

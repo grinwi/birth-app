@@ -5,6 +5,7 @@ from urllib.parse import urlparse, parse_qs
 from _csv import to_csv, normalize_row, validate_row
 from _kv import get_rows as kv_get_rows, set_rows as kv_set_rows
 from _github import create_pr_with_csv
+from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from _auth import get_user_from_headers
 
 
@@ -15,6 +16,20 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def store_get_rows():
+    if is_blob_configured():
+        data = blob_get_json(default=[])
+        return data if isinstance(data, list) else []
+    return kv_get_rows()
+
+
+def store_set_rows(rows):
+    if is_blob_configured():
+        blob_set_json(rows)
+        return
+    kv_set_rows(rows)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -54,12 +69,12 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             # Load current rows from KV, update at index
-            rows = kv_get_rows()
+            rows = store_get_rows()
             if idx >= len(rows):
                 _json_response(self, 400, {"error": "Index out of range"})
                 return
             rows[idx] = normalize_row(payload)
-            kv_set_rows(rows)
+            store_set_rows(rows)
 
             # Create PR with updated CSV
             new_csv = to_csv(rows) + "\n"
@@ -96,12 +111,12 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             # Load current rows from KV and delete at index
-            rows = kv_get_rows()
+            rows = store_get_rows()
             if idx >= len(rows):
                 _json_response(self, 400, {"error": "Index out of range"})
                 return
             rows.pop(idx)
-            kv_set_rows(rows)
+            store_set_rows(rows)
 
             # Create PR with updated CSV
             new_csv = to_csv(rows) + "\n"
