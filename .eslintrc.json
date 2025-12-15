@@ -1,0 +1,31 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2021": true,
+    "jest": true
+  },
+  "extends": [
+    "eslint:recommended",
+    "plugin:sonarjs/recommended"
+  ],
+  "plugins": [
+    "sonarjs"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "script"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "birthdays.csv"
+  ],
+  "rules": {
+    "no-console": "off",
+    "sonarjs/cognitive-complexity": ["warn", 20]
+  }
+}
