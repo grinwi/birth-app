@@ -134,7 +134,10 @@ class handler(BaseHTTPRequestHandler):
             _json_response(self, 401, {"error": "Unauthorized"})
             return
 
-        override = (self.headers.get("X-HTTP-Method-Override") or "").strip().upper()
+        # Allow override via header or query (?method=PUT|DELETE or ?_method=...)
+        qs_for_override = parse_qs(urlparse(self.path).query or "")
+        override_q = (qs_for_override.get("method") or qs_for_override.get("_method") or [""])[0]
+        override = (self.headers.get("X-HTTP-Method-Override") or override_q or "").strip().upper()
         if override not in ("PUT", "DELETE"):
             _json_response(self, 405, {"error": "Method Not Allowed"})
             return

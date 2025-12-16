@@ -5,6 +5,36 @@ from ._blob import is_blob_configured, set_json as blob_set_json, get_json as bl
 from ._github import create_pr_with_json
 from ._auth import get_user_from_headers
 
+def _normalize_row(row: dict) -> dict:
+    return {
+        "first_name": (row.get("first_name") or "").strip(),
+        "last_name": (row.get("last_name") or "").strip(),
+        "day": (row.get("day") or "").strip(),
+        "month": (row.get("month") or "").strip(),
+        "year": (row.get("year") or "").strip(),
+    }
+
+def _validate_row(row: dict) -> None:
+    r = _normalize_row(row)
+    if not r["first_name"]:
+        raise ValueError("first_name is required")
+    if not r["last_name"]:
+        raise ValueError("last_name is required")
+    try:
+        d = int(r["day"])
+        m = int(r["month"])
+        y = int(r["year"])
+    except Exception:
+        raise ValueError("day/month/year must be integers")
+    if d < 1 or d > 31:
+        raise ValueError("day must be 1-31")
+    if m < 1 or m > 12:
+        raise ValueError("month must be 1-12")
+    if y < 1900 or y > 3000:
+        raise ValueError("year must be a realistic year (1900..3000)")
+    import datetime
+    _ = datetime.date(y, m, d)
+
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     data = json.dumps(payload).encode("utf-8")
@@ -46,6 +76,14 @@ class handler(BaseHTTPRequestHandler):
             else:
                 _json_response(self, 400, {"error": "Unsupported payload format. Provide an array of rows or {\"data\": [...]}."})
                 return
+
+            # Validate all rows with clear indexing to surface issues early
+            for i, r in enumerate(rows):
+                try:
+                    _validate_row(r if isinstance(r, dict) else {})
+                except Exception as ve:
+                    _json_response(self, 400, {"error": f"Row {i}: {str(ve)}"})
+                    return
 
             # Persist to Blob (runtime DB) when configured; otherwise skip in dev
             if is_blob_configured():
