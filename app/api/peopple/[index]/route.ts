@@ -46,7 +46,6 @@ async function proxy(method: 'PUT' | 'DELETE', req: Request, index: string) {
     tried.push({ url: t, status: res.status, body: (text || '').slice(0, 400) });
   }
 
-  // All attempts were 404/405 or failed: return diagnostics to help identify which target is blocked
   const diag = {
     ok: false,
     error: 'all_targets_failed',
@@ -58,14 +57,14 @@ async function proxy(method: 'PUT' | 'DELETE', req: Request, index: string) {
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 }
- 
+
 export async function OPTIONS() {
   return new Response(null, { status: 204 });
 }
 
 /**
- * Support GET /api/people/:index by fetching the full list and returning the element.
- * This is a convenience so clients can retrieve a single row by index.
+ * Support GET /api/peopple/:index by fetching the full list and returning the element.
+ * Compatibility route to handle cached/typo paths.
  */
 export async function GET(req: Request, ctx: { params: { index: string } }) {
   try {
@@ -106,7 +105,6 @@ export async function POST(req: Request, ctx: { params: { index: string } }) {
     const url = new URL(req.url);
     const override = (req.headers.get('x-http-method-override') || url.searchParams.get('method') || 'PUT').toUpperCase();
     const method = override === 'DELETE' ? 'DELETE' : 'PUT';
-    // Delegate to the same proxy using the inferred method
     return await proxy(method as 'PUT' | 'DELETE', req, ctx.params.index);
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: 'people_index_proxy_failed', detail: e?.message || String(e) }), {
@@ -115,7 +113,7 @@ export async function POST(req: Request, ctx: { params: { index: string } }) {
     });
   }
 }
- 
+
 export async function PUT(req: Request, ctx: { params: { index: string } }) {
   try {
     return await proxy('PUT', req, ctx.params.index);
