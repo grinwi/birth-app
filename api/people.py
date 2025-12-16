@@ -79,8 +79,24 @@ def _bootstrap_blob_from_github_if_empty() -> list:
 
 def store_get_rows():
     if not is_blob_configured():
-        # Explicitly signal configuration error
-        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+        # Local dev fallback: try reading birthdays.json from repo root or CWD
+        candidates = []
+        try:
+            here = os.path.dirname(__file__)
+            candidates.append(os.path.normpath(os.path.join(here, "..", "birthdays.json")))
+        except Exception:
+            pass
+        candidates.append("birthdays.json")
+        for p in candidates:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    parsed = json.load(f)
+                    if isinstance(parsed, list):
+                        return parsed
+            except Exception:
+                continue
+        # No local fallback, return empty list to keep UI functional
+        return []
     data = blob_get_json(default=None)
     if isinstance(data, list):
         return data
