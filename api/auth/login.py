@@ -1,7 +1,7 @@
 import json
 from http.server import BaseHTTPRequestHandler
 
-from _auth import (
+from .._auth import (
   authenticate_user,
   bootstrap_admin_if_empty,
   create_jwt,

@@ -1,9 +1,9 @@
 import json
 from http.server import BaseHTTPRequestHandler
 
-from _blob import is_blob_configured, set_json as blob_set_json, get_json as blob_get_json
-from _github import create_pr_with_json
-from _auth import get_user_from_headers
+from ._blob import is_blob_configured, set_json as blob_set_json, get_json as blob_get_json
+from ._github import create_pr_with_json
+from ._auth import get_user_from_headers
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):

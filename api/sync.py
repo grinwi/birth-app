@@ -3,8 +3,8 @@ import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from _blob import is_blob_configured, set_json as blob_set_json
-from _github import (
+from ._blob import is_blob_configured, set_json as blob_set_json
+from ._github import (
     fetch_raw_json,
     GITHUB_OWNER,
     GITHUB_REPO,

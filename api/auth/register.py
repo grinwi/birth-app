@@ -1,7 +1,7 @@
 import json
 from http.server import BaseHTTPRequestHandler
 
-from _auth import consume_invite, create_user, create_jwt, build_auth_cookie
+from .._auth import consume_invite, create_user, create_jwt, build_auth_cookie
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict, set_cookie: str | None = None):
   data = json.dumps(payload).encode("utf-8")

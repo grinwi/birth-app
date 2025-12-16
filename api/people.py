@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 # Lazy-import _github only where needed to avoid module import errors at cold start
-from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
+from ._blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 
 
 def normalize_row(row: dict) -> dict:
@@ -400,7 +400,7 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         # Mutations still require auth
         try:
-            from _auth import get_user_from_headers as _get_user_from_headers
+            from ._auth import get_user_from_headers as _get_user_from_headers
         except Exception as ie:
             _json_response(self, 500, {"error": f"Auth module import failed: {str(ie)}"})
             return
@@ -430,7 +430,7 @@ class handler(BaseHTTPRequestHandler):
 
             # Create PR with JSON only
             try:
-                from _github import create_pr_with_json
+                from ._github import create_pr_with_json
                 pr_number, pr_url = create_pr_with_json(rows, title="Add person via UI")
             except Exception as pe:
                 # If PR fails, still return the updated data so UI updates; but indicate failure
