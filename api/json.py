@@ -21,9 +21,6 @@ class handler(BaseHTTPRequestHandler):
         if not user:
             _json_response(self, 401, {"error": "Unauthorized"})
             return
-        if not is_blob_configured():
-            _json_response(self, 500, {"error": "Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)"})
-            return
         try:
             rows = blob_get_json(default=[])
             if not isinstance(rows, list):
@@ -36,9 +33,6 @@ class handler(BaseHTTPRequestHandler):
         user = get_user_from_headers(self.headers)
         if not user or user.get("role") != "admin":
             _json_response(self, 403, {"error": "Forbidden"})
-            return
-        if not is_blob_configured():
-            _json_response(self, 500, {"error": "Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -53,8 +47,9 @@ class handler(BaseHTTPRequestHandler):
                 _json_response(self, 400, {"error": "Unsupported payload format. Provide an array of rows or {\"data\": [...]}."})
                 return
 
-            # Persist to Blob (runtime DB)
-            blob_set_json(rows)
+            # Persist to Blob (runtime DB) when configured; otherwise skip in dev
+            if is_blob_configured():
+                blob_set_json(rows)
 
             # Open PR to update GitHub JSON backup
             try:

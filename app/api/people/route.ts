@@ -11,7 +11,7 @@ function forwardHeaders(req: Request) {
 
 async function proxy(method: 'GET' | 'POST', req: Request) {
   const url = new URL(req.url);
-  const target = `${url.origin}/api-py/people${url.search}`;
+  const target = `${url.origin}/api/people.py${url.search}`;
   const init: RequestInit = {
     method,
     headers: forwardHeaders(req),
@@ -23,11 +23,12 @@ async function proxy(method: 'GET' | 'POST', req: Request) {
 
   const res = await fetch(target, init);
   const body = await res.text();
+  const outBody = body && body.length ? body : (!res.ok ? JSON.stringify({ ok: false, status: res.status, error: 'empty_error_body_from_backend' }) : body);
 
   // Mirror status and content-type from backend
   const headers = new Headers();
   headers.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8');
-  return new Response(body, { status: res.status, headers });
+  return new Response(outBody, { status: res.status, headers });
 }
 
 export async function OPTIONS() {

@@ -426,10 +426,33 @@ export default function Page() {
         alert('Forbidden: admin required to push to GitHub.');
         return;
       }
-      if (!res.ok) throw new Error(await res.text());
-      alert('Change submitted to GitHub (JSON PR created).');
-    } catch (e) {
-      alert('Failed to push data to GitHub.');
+      const text = await res.text();
+      if (!res.ok) {
+        // Try to surface structured backend error if present
+        try {
+          const j = JSON.parse(text);
+          const details =
+            j?.warning || j?.error || j?.message || (typeof j === 'string' ? j : '');
+          alert(`GitHub push failed (${res.status}): ${details || 'Unknown error'}`);
+        } catch {
+          alert(`GitHub push failed (${res.status}): ${text || 'Unknown error'}`);
+        }
+        return;
+      }
+      // OK path: show PR URL or warning if PR creation failed gracefully
+      let j: any = null;
+      try {
+        j = text ? JSON.parse(text) : null;
+      } catch {}
+      if (j?.pr_url) {
+        alert(`Change submitted. GitHub PR: ${j.pr_url}`);
+      } else if (j?.warning) {
+        alert(`JSON saved, but PR not created: ${j.warning}`);
+      } else {
+        alert('Change submitted to GitHub (JSON).');
+      }
+    } catch (e: any) {
+      alert(`Failed to push data to GitHub: ${e?.message || 'Network error'}`);
     }
   }
 

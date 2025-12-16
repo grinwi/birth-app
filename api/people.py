@@ -9,6 +9,9 @@ from urllib.parse import urlparse, parse_qs
 # Lazy-import _github only where needed to avoid module import errors at cold start
 from ._blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 
+# In-memory dev storage when Blob is not configured
+_DEV_ROWS = None
+
 
 def normalize_row(row: dict) -> dict:
     return {
@@ -78,8 +81,12 @@ def _bootstrap_blob_from_github_if_empty() -> list:
 
 
 def store_get_rows():
+    global _DEV_ROWS
     if not is_blob_configured():
-        # Local dev fallback: try reading birthdays.json from repo root or CWD
+        # Prefer in-memory ephemeral store for dev/unconfigured environments
+        if isinstance(_DEV_ROWS, list):
+            return _DEV_ROWS
+        # Fallback: try reading birthdays.json from repo root or CWD
         candidates = []
         try:
             here = os.path.dirname(__file__)
@@ -92,11 +99,13 @@ def store_get_rows():
                 with open(p, "r", encoding="utf-8") as f:
                     parsed = json.load(f)
                     if isinstance(parsed, list):
+                        _DEV_ROWS = parsed  # cache for subsequent requests
                         return parsed
             except Exception:
                 continue
         # No local fallback, return empty list to keep UI functional
-        return []
+        _DEV_ROWS = []
+        return _DEV_ROWS
     data = blob_get_json(default=None)
     if isinstance(data, list):
         return data
@@ -107,7 +116,13 @@ def store_get_rows():
 
 def store_set_rows(rows):
     if not is_blob_configured():
-        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+        # Dev/unconfigured: keep rows in-memory to allow UI edits without Blob
+        global _DEV_ROWS
+        try:
+            _DEV_ROWS = list(rows)
+        except Exception:
+            _DEV_ROWS = rows
+        return
     blob_set_json(rows)
 
 
