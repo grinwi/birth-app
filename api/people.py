@@ -121,9 +121,9 @@ def store_get_rows():
 
 
 def store_set_rows(rows):
+    global _DEV_ROWS
     if not is_blob_configured():
         # Dev/unconfigured: keep rows in-memory to allow UI edits without Blob
-        global _DEV_ROWS
         try:
             _DEV_ROWS = list(rows)
         except Exception:
@@ -133,7 +133,6 @@ def store_set_rows(rows):
     try:
         blob_set_json(rows)
     except Exception:
-        global _DEV_ROWS
         try:
             _DEV_ROWS = list(rows)
         except Exception:
