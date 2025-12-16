@@ -106,7 +106,13 @@ def store_get_rows():
         # No local fallback, return empty list to keep UI functional
         _DEV_ROWS = []
         return _DEV_ROWS
-    data = blob_get_json(default=None)
+    try:
+        data = blob_get_json(default=None)
+    except Exception:
+        # Fallback when Blob GET errors (e.g., 405/403 or domain/permission issues)
+        if isinstance(_DEV_ROWS, list):
+            return _DEV_ROWS
+        return []
     if isinstance(data, list):
         return data
     # Attempt automatic bootstrap from GitHub JSON if Blob is empty/missing
@@ -123,7 +129,17 @@ def store_set_rows(rows):
         except Exception:
             _DEV_ROWS = rows
         return
-    blob_set_json(rows)
+    # Blob configured but write may fail (405/403). Fallback to in-memory to avoid breaking the UI.
+    try:
+        blob_set_json(rows)
+    except Exception:
+        global _DEV_ROWS
+        try:
+            _DEV_ROWS = list(rows)
+        except Exception:
+            _DEV_ROWS = rows
+        # swallow write error to keep UX working in dev/misconfigured envs
+        return
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
