@@ -27,38 +27,55 @@ async function proxy(method: 'PUT' | 'DELETE', req: Request, index: string) {
     initBase.body = await req.text();
   }
 
-  let lastRes: Response | null = null;
+  const tried: Array<{ url: string; status: number; body: string }> = [];
   for (const t of targets) {
-    const res = await fetch(t, initBase);
-    lastRes = res;
-    // Treat 404/405 as "try next target", return immediately for all other statuses
+    let res: Response;
+    try {
+      res = await fetch(t, initBase);
+    } catch (e: any) {
+      tried.push({ url: t, status: 0, body: `network_error: ${e?.message || String(e)}` });
+      continue;
+    }
+    const text = await res.text();
     if (res.status !== 404 && res.status !== 405) {
-      const body = await res.text();
-      const outBody = body && body.length ? body : (!res.ok ? JSON.stringify({ ok: false, status: res.status, error: 'empty_error_body_from_backend' }) : body);
+      const outBody = text && text.length ? text : (!res.ok ? JSON.stringify({ ok: false, status: res.status, error: 'empty_error_body_from_backend', target: t }) : text);
       const respHeaders = new Headers();
       respHeaders.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8');
       return new Response(outBody, { status: res.status, headers: respHeaders });
     }
+    tried.push({ url: t, status: res.status, body: (text || '').slice(0, 400) });
   }
 
-  // If all attempts resulted in 404/405, return the last one with a meaningful body
-  if (lastRes) {
-    const body = await lastRes.text();
-    const outBody = body && body.length ? body : JSON.stringify({ ok: false, status: lastRes.status, error: 'all_targets_failed' });
-    const respHeaders = new Headers();
-    respHeaders.set('content-type', lastRes.headers.get('content-type') || 'application/json; charset=utf-8');
-    return new Response(outBody, { status: lastRes.status, headers: respHeaders });
-  }
-
-  // Should not happen, but guard just in case
-  return new Response(JSON.stringify({ ok: false, error: 'no_response' }), {
-    status: 502,
+  // All attempts were 404/405 or failed: return diagnostics to help identify which target is blocked
+  const diag = {
+    ok: false,
+    error: 'all_targets_failed',
+    note: 'Hosts may block PUT/DELETE or strip override hints. We tried multiple targets via POST with X-HTTP-Method-Override.',
+    tried,
+  };
+  return new Response(JSON.stringify(diag), {
+    status: tried.length ? (tried[tried.length - 1].status || 502) : 502,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 }
  
 export async function OPTIONS() {
   return new Response(null, { status: 204 });
+}
+
+export async function POST(req: Request, ctx: { params: { index: string } }) {
+  try {
+    const url = new URL(req.url);
+    const override = (req.headers.get('x-http-method-override') || url.searchParams.get('method') || 'PUT').toUpperCase();
+    const method = override === 'DELETE' ? 'DELETE' : 'PUT';
+    // Delegate to the same proxy using the inferred method
+    return await proxy(method as 'PUT' | 'DELETE', req, ctx.params.index);
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: 'people_index_proxy_failed', detail: e?.message || String(e) }), {
+      status: 500,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
 }
  
 export async function PUT(req: Request, ctx: { params: { index: string } }) {
