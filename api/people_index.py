@@ -2,7 +2,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from _github import (
+from ._github import (
     create_pr_with_json,
     fetch_raw_json,
     GITHUB_OWNER,
@@ -10,8 +10,8 @@ from _github import (
     GITHUB_BRANCH,
     GITHUB_JSON_FILE_PATH,
 )
-from _blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
-from _auth import get_user_from_headers
+from ._blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
+from ._auth import get_user_from_headers
 
 
 def normalize_row(row: dict) -> dict:

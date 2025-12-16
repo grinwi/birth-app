@@ -7,7 +7,7 @@ import time
 import secrets
 from typing import Dict, Optional, Tuple
 
-from _kv import kv_get_json, kv_set_json, kv_del, USERS_KEY, INVITE_PREFIX, KvError
+from ._kv import kv_get_json, kv_set_json, kv_del, USERS_KEY, INVITE_PREFIX, KvError
 
 AUTH_SECRET = os.getenv("AUTH_SECRET", "")
 TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "1209600"))  # 14 days default

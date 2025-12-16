@@ -1,7 +1,7 @@
 import json
 from http.server import BaseHTTPRequestHandler
 
-from _auth import create_invite, get_user_from_headers
+from .._auth import create_invite, get_user_from_headers
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict):
   data = json.dumps(payload).encode("utf-8")
