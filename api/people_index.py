@@ -117,9 +117,9 @@ def store_get_rows():
 
 
 def store_set_rows(rows):
+    global _DEV_ROWS
     if not is_blob_configured():
         # Dev/unconfigured: keep rows in-memory to allow UI edits without Blob
-        global _DEV_ROWS
         try:
             _DEV_ROWS = list(rows)
         except Exception:
@@ -129,7 +129,6 @@ def store_set_rows(rows):
     try:
         blob_set_json(rows)
     except Exception:
-        global _DEV_ROWS
         try:
             _DEV_ROWS = list(rows)
         except Exception:
@@ -155,8 +154,13 @@ class handler(BaseHTTPRequestHandler):
         override_q = (qs_for_override.get("method") or qs_for_override.get("_method") or [""])[0]
         override = (self.headers.get("X-HTTP-Method-Override") or override_q or "").strip().upper()
         if override not in ("PUT", "DELETE"):
-            _json_response(self, 405, {"error": "Method Not Allowed"})
-            return
+            # Infer operation when hosts/proxies drop override hints:
+            # if body present => treat as PUT, otherwise DELETE.
+            try:
+                content_len = int(self.headers.get("Content-Length", "0"))
+            except Exception:
+                content_len = 0
+            override = "PUT" if content_len > 0 else "DELETE"
 
         try:
             # Parse index from query ?index=#
