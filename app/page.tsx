@@ -33,6 +33,40 @@ function ensureString(v: unknown) {
 
 
 
+function validateRowClient(row: Row): string | null {
+  const r = {
+    first_name: (row.first_name || '').trim(),
+    last_name: (row.last_name || '').trim(),
+    day: (row.day || '').trim(),
+    month: (row.month || '').trim(),
+    year: (row.year || '').trim(),
+  };
+  if (!r.first_name) return 'first_name is required';
+  if (!r.last_name) return 'last_name is required';
+  let d = 0, m = 0, y = 0;
+  try {
+    d = parseInt(r.day, 10);
+    m = parseInt(r.month, 10);
+    y = parseInt(r.year, 10);
+  } catch {
+    return 'day/month/year must be integers';
+  }
+  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return 'day/month/year must be integers';
+  if (d < 1 || d > 31) return 'day must be 1-31';
+  if (m < 1 || m > 12) return 'month must be 1-12';
+  if (y < 1900 || y > 3000) return 'year must be a realistic year (1900..3000)';
+  try {
+    // Validate date
+    const test = new Date(y, m - 1, d);
+    if (test.getFullYear() !== y || test.getMonth() !== (m - 1) || test.getDate() !== d) {
+      return 'Invalid calendar date';
+    }
+  } catch {
+    return 'Invalid calendar date';
+  }
+  return null;
+}
+
 function getPeriodRange(period: Exclude<Period, 'all'>) {
   const today = new Date();
   let start: Date | null = null;
@@ -354,7 +388,7 @@ export default function Page() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(editValues),
+          body: JSON.stringify({ ...rows[index], ...(editValues as Row) }),
         });
         if (res.status === 401) {
           window.location.href = '/login';
@@ -410,6 +444,14 @@ export default function Page() {
     if (!rows.length) {
       alert('No data to save.');
       return;
+    }
+    // Validate all rows client-side before pushing to backend/PR
+    for (let i = 0; i < rows.length; i++) {
+      const err = validateRowClient(rows[i]);
+      if (err) {
+        alert(`Cannot push to GitHub: Row ${i} invalid: ${err}`);
+        return;
+      }
     }
     try {
       const res = await fetch(`${apiBase}/json`, {

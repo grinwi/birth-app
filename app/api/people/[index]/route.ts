@@ -10,26 +10,51 @@ function forwardHeaders(req: Request) {
 
 async function proxy(method: 'PUT' | 'DELETE', req: Request, index: string) {
   const url = new URL(req.url);
-  // Bypass rewrite indirection and hit the Python function directly to avoid 405s on some hosts
-  const target = `${url.origin}/api/people_index.py?index=${encodeURIComponent(index)}`;
   const reqHeaders = forwardHeaders(req);
   reqHeaders.set('X-HTTP-Method-Override', method);
-  const init: RequestInit = {
+  const base = url.origin;
+  const targets = [
+    `${base}/api/people_index.py?index=${encodeURIComponent(index)}&method=${encodeURIComponent(method)}`,
+    `${base}/api-py/people/${encodeURIComponent(index)}?method=${encodeURIComponent(method)}`,
+    `${base}/api-py/people/${encodeURIComponent(index)}`
+  ];
+  const initBase: RequestInit = {
     method: 'POST',
     headers: reqHeaders,
     cache: 'no-store',
   };
   if (method === 'PUT') {
-    init.body = await req.text();
+    initBase.body = await req.text();
   }
 
-  const res = await fetch(target, init);
-  const body = await res.text();
-  const outBody = body && body.length ? body : (!res.ok ? JSON.stringify({ ok: false, status: res.status, error: 'empty_error_body_from_backend' }) : body);
+  let lastRes: Response | null = null;
+  for (const t of targets) {
+    const res = await fetch(t, initBase);
+    lastRes = res;
+    // Treat 404/405 as "try next target", return immediately for all other statuses
+    if (res.status !== 404 && res.status !== 405) {
+      const body = await res.text();
+      const outBody = body && body.length ? body : (!res.ok ? JSON.stringify({ ok: false, status: res.status, error: 'empty_error_body_from_backend' }) : body);
+      const respHeaders = new Headers();
+      respHeaders.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8');
+      return new Response(outBody, { status: res.status, headers: respHeaders });
+    }
+  }
 
-  const respHeaders = new Headers();
-  respHeaders.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8');
-  return new Response(outBody, { status: res.status, headers: respHeaders });
+  // If all attempts resulted in 404/405, return the last one with a meaningful body
+  if (lastRes) {
+    const body = await lastRes.text();
+    const outBody = body && body.length ? body : JSON.stringify({ ok: false, status: lastRes.status, error: 'all_targets_failed' });
+    const respHeaders = new Headers();
+    respHeaders.set('content-type', lastRes.headers.get('content-type') || 'application/json; charset=utf-8');
+    return new Response(outBody, { status: lastRes.status, headers: respHeaders });
+  }
+
+  // Should not happen, but guard just in case
+  return new Response(JSON.stringify({ ok: false, error: 'no_response' }), {
+    status: 502,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
 }
  
 export async function OPTIONS() {
