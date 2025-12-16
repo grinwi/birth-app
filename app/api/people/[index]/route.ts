@@ -27,7 +27,11 @@ async function proxy(method: 'PUT' | 'DELETE', req: Request, index: string) {
   headers.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8');
   return new Response(body, { status: res.status, headers });
 }
-
+ 
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
+}
+ 
 export async function PUT(req: Request, ctx: { params: { index: string } }) {
   try {
     return await proxy('PUT', req, ctx.params.index);

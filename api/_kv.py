@@ -7,6 +7,9 @@ from typing import Any, Optional, Tuple
 
 KV_URL = os.getenv("KV_REST_API_URL", "").rstrip("/")
 KV_TOKEN = os.getenv("KV_REST_API_TOKEN", "")
+# Development fallback: if KV is not configured, use an in-memory store to avoid hard failures.
+USE_DEV_KV = not (KV_URL and KV_TOKEN)
+_DEV_STORE: dict[str, str] = {}
 
 
 class KvError(RuntimeError):
@@ -14,6 +17,9 @@ class KvError(RuntimeError):
 
 
 def _require_kv():
+    if USE_DEV_KV:
+        # In dev/fallback mode, skip strict requirement
+        return
     if not KV_URL or not KV_TOKEN:
         raise KvError("Missing KV_REST_API_URL or KV_REST_API_TOKEN")
 
@@ -44,7 +50,10 @@ def kv_get_raw(key: str) -> Optional[str]:
     """
     GET value as string (or None) from Upstash KV REST.
     GET {KV_URL}/get/{key} -> {"result":"value"} or {"result":null}
+    In dev/fallback mode (no KV env), reads from _DEV_STORE.
     """
+    if USE_DEV_KV:
+        return _DEV_STORE.get(key)
     _require_kv()
     url = f"{KV_URL}/get/{urllib.parse.quote(key, safe='')}"
     status, data = _request("GET", url)
@@ -58,7 +67,13 @@ def kv_set_raw(key: str, value: str, nx: bool = False) -> bool:
     """
     SET raw string value. Returns True if OK.
     POST {KV_URL}/set/{key}/{value}?nx=true|false
+    In dev/fallback mode (no KV env), writes to _DEV_STORE.
     """
+    if USE_DEV_KV:
+        if nx and key in _DEV_STORE:
+            return False
+        _DEV_STORE[key] = value
+        return True
     _require_kv()
     q = "?nx=true" if nx else ""
     url = f"{KV_URL}/set/{urllib.parse.quote(key, safe='')}/{urllib.parse.quote(value, safe='')}{q}"
@@ -73,7 +88,13 @@ def kv_set_raw(key: str, value: str, nx: bool = False) -> bool:
 def kv_del(key: str) -> int:
     """
     DEL key. Returns number of keys removed (0 or 1).
+    In dev/fallback mode (no KV env), deletes from _DEV_STORE.
     """
+    if USE_DEV_KV:
+        if key in _DEV_STORE:
+            del _DEV_STORE[key]
+            return 1
+        return 0
     _require_kv()
     url = f"{KV_URL}/del/{urllib.parse.quote(key, safe='')}"
     status, data = _request("POST", url)

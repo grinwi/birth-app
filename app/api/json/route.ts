@@ -27,6 +27,18 @@ async function proxy(method: 'GET' | 'POST', req: Request) {
   return new Response(body, { status: res.status, headers });
 }
 
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
+}
+
+export async function HEAD(req: Request) {
+  try {
+    return await proxy('GET', req);
+  } catch {
+    return new Response(null, { status: 500 });
+  }
+}
+
 export async function GET(req: Request) {
   try {
     return await proxy('GET', req);
