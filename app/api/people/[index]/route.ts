@@ -63,6 +63,44 @@ export async function OPTIONS() {
   return new Response(null, { status: 204 });
 }
 
+/**
+ * Support GET /api/people/:index by fetching the full list and returning the element.
+ * This is a convenience so clients can retrieve a single row by index.
+ */
+export async function GET(req: Request, ctx: { params: { index: string } }) {
+  try {
+    const url = new URL(req.url);
+    const base = url.origin;
+    const listRes = await fetch(`${base}/api/people.py`, { method: 'GET', cache: 'no-store' });
+    const text = await listRes.text();
+    if (!listRes.ok) {
+      const respHeaders = new Headers();
+      respHeaders.set('content-type', listRes.headers.get('content-type') || 'application/json; charset=utf-8');
+      const outBody = text && text.length ? text : JSON.stringify({ ok: false, status: listRes.status, error: 'failed_to_fetch_list' });
+      return new Response(outBody, { status: listRes.status, headers: respHeaders });
+    }
+    let payload: any = {};
+    try { payload = JSON.parse(text); } catch {}
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    const idx = parseInt(ctx.params.index, 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) {
+      return new Response(JSON.stringify({ ok: false, error: 'Index out of range', index: idx, count: rows.length }), {
+        status: 404,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, index: idx, data: rows[idx] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: 'people_index_get_failed', detail: e?.message || String(e) }), {
+      status: 500,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
+}
+
 export async function POST(req: Request, ctx: { params: { index: string } }) {
   try {
     const url = new URL(req.url);
