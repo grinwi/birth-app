@@ -13,6 +13,9 @@ from ._github import (
 from ._blob import is_blob_configured, get_json as blob_get_json, set_json as blob_set_json
 from ._auth import get_user_from_headers
 
+# In-memory dev storage when Blob is not configured
+_DEV_ROWS = None
+
 
 def normalize_row(row: dict) -> dict:
     return {
@@ -75,8 +78,30 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
 
 
 def store_get_rows():
+    global _DEV_ROWS
     if not is_blob_configured():
-        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+        # Prefer in-memory ephemeral store for dev/unconfigured environments
+        if isinstance(_DEV_ROWS, list):
+            return _DEV_ROWS
+        # Local dev fallback: read from birthdays.json in repo root or CWD
+        candidates = []
+        try:
+            import os
+            here = os.path.dirname(__file__)
+            candidates.append(os.path.normpath(os.path.join(here, "..", "birthdays.json")))
+        except Exception:
+            pass
+        candidates.append("birthdays.json")
+        for p in candidates:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    parsed = json.load(f)
+                    if isinstance(parsed, list):
+                        return parsed
+            except Exception:
+                continue
+        # No local fallback, return empty list
+        return []
     data = blob_get_json(default=None)
     if isinstance(data, list):
         return data
@@ -87,11 +112,105 @@ def store_get_rows():
 
 def store_set_rows(rows):
     if not is_blob_configured():
-        raise RuntimeError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+        # Dev/unconfigured: keep rows in-memory to allow UI edits without Blob
+        global _DEV_ROWS
+        try:
+            _DEV_ROWS = list(rows)
+        except Exception:
+            _DEV_ROWS = rows
+        return
     blob_set_json(rows)
 
 
 class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        """
+        Method override endpoint for hosts that don't forward PUT/DELETE to Python functions.
+        Use header: X-HTTP-Method-Override: PUT|DELETE and ?index=#
+        """
+        # Auth
+        user = get_user_from_headers(self.headers)
+        if not user:
+            _json_response(self, 401, {"error": "Unauthorized"})
+            return
+
+        override = (self.headers.get("X-HTTP-Method-Override") or "").strip().upper()
+        if override not in ("PUT", "DELETE"):
+            _json_response(self, 405, {"error": "Method Not Allowed"})
+            return
+
+        try:
+            # Parse index from query ?index=#
+            qs = parse_qs(urlparse(self.path).query or "")
+            index_vals = qs.get("index", [])
+            if not index_vals:
+                _json_response(self, 400, {"error": "Missing index"})
+                return
+            try:
+                idx = int(index_vals[0])
+                if idx < 0:
+                    raise ValueError()
+            except Exception:
+                _json_response(self, 400, {"error": "Invalid index"})
+                return
+
+            rows = store_get_rows()
+
+            if override == "PUT":
+                # Read JSON body for updated person
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length) if length > 0 else b"{}"
+                payload = json.loads(body.decode("utf-8") or "{}")
+                if not isinstance(payload, dict):
+                    _json_response(self, 400, {"error": "Invalid person payload"})
+                    return
+
+                # Validate
+                try:
+                    validate_row(payload)
+                except Exception as ve:
+                    _json_response(self, 400, {"error": str(ve)})
+                    return
+
+                if idx >= len(rows):
+                    _json_response(self, 400, {"error": "Index out of range"})
+                    return
+                rows[idx] = normalize_row(payload)
+                store_set_rows(rows)
+
+                # Create PR with JSON only
+                try:
+                    pr_number, pr_url = create_pr_with_json(rows, title="Update person via UI")
+                except Exception as pe:
+                    _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                    return
+
+                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+                return
+
+            if override == "DELETE":
+                if idx >= len(rows):
+                    _json_response(self, 400, {"error": "Index out of range"})
+                    return
+                rows.pop(idx)
+                store_set_rows(rows)
+
+                # Create PR with JSON only
+                try:
+                    pr_number, pr_url = create_pr_with_json(rows, title="Delete person via UI")
+                except Exception as pe:
+                    _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                    return
+
+                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+                return
+
+            _json_response(self, 405, {"error": "Method Not Allowed"})
+        except json.JSONDecodeError:
+            _json_response(self, 400, {"error": "Invalid JSON"})
+        except Exception as e:
+            _json_response(self, 500, {"error": str(e)})
+
     def do_PUT(self):
         user = get_user_from_headers(self.headers)
         if not user:
