@@ -150,7 +150,7 @@ function computeNextBirthdayDisplay(row: Row, periodRange: { start: Date; end: D
 }
 
 export default function Page() {
-  const [apiBase, setApiBase] = useState<string>('/api-py');
+  const [apiBase, setApiBase] = useState<string>('/api');
   const [backendReachable, setBackendReachable] = useState<boolean>(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [activePeriod, setActivePeriod] = useState<Period>('all');
