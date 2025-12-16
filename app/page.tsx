@@ -385,8 +385,8 @@ export default function Page() {
     if (backendReachable) {
       try {
         const res = await fetch(`${apiBase}/people/${index}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-HTTP-Method-Override': 'PUT' },
           credentials: 'include',
           body: JSON.stringify({ ...rows[index], ...(editValues as Row) }),
         });
@@ -416,7 +416,8 @@ export default function Page() {
     if (backendReachable) {
       try {
         const res = await fetch(`${apiBase}/people/${index}`, {
-          method: 'DELETE',
+          method: 'POST',
+          headers: { 'X-HTTP-Method-Override': 'DELETE' },
           credentials: 'include',
         });
         if (res.status === 401) {
