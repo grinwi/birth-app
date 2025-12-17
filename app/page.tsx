@@ -201,6 +201,7 @@ export default function Page() {
   const [currentSort, setCurrentSort] = useState<{ type: SortKey; order: 'asc' | 'desc' }[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Partial<Row>>({});
+  const [persistedState, setPersistedState] = useState<'unknown' | 'blob' | 'memory'>('unknown');
 
   // Init API base from localStorage once on mount
   useEffect(() => {
@@ -398,8 +399,13 @@ export default function Page() {
           return;
         }
         if (!res.ok) throw new Error(await res.text());
-        const json = (await res.json()) as { data?: Row[] };
+        const json = (await res.json()) as { data?: Row[]; persisted?: boolean };
         setRows(Array.isArray(json.data) ? json.data : []);
+        if ((json as any)?.persisted === true || (json as any)?.ok === true) {
+          setPersistedState('blob');
+        } else if ((json as any)?.persisted === false) {
+          setPersistedState('memory');
+        }
       } catch (e: any) {
         alert(`Failed to add row: ${e?.message || 'Unknown error'}`);
       }
@@ -433,8 +439,13 @@ export default function Page() {
           return;
         }
         if (!res.ok) throw new Error(await res.text());
-        const json = (await res.json()) as { data?: Row[] };
+        const json = (await res.json()) as { data?: Row[]; persisted?: boolean };
         setRows(Array.isArray(json.data) ? json.data : []);
+        if ((json as any)?.persisted === true || (json as any)?.ok === true) {
+          setPersistedState('blob');
+        } else if ((json as any)?.persisted === false) {
+          setPersistedState('memory');
+        }
       } catch (e: any) {
         alert(`Failed to save row: ${e?.message || 'Unknown error'}`);
         return;
@@ -463,8 +474,13 @@ export default function Page() {
           return;
         }
         if (!res.ok) throw new Error(await res.text());
-        const json = (await res.json()) as { data?: Row[] };
+        const json = (await res.json()) as { data?: Row[]; persisted?: boolean };
         setRows(Array.isArray(json.data) ? json.data : []);
+        if ((json as any)?.persisted === true || (json as any)?.ok === true) {
+          setPersistedState('blob');
+        } else if ((json as any)?.persisted === false) {
+          setPersistedState('memory');
+        }
       } catch (e: any) {
         alert(`Failed to delete row: ${e?.message || 'Unknown error'}`);
       }
@@ -573,6 +589,17 @@ export default function Page() {
       >
         {backendStatusText}
       </p>
+      {persistedState !== 'unknown' && (
+        <p
+          id="persisted-status"
+          aria-live="polite"
+          style={{ margin: '4px 0 12px', fontSize: '0.85rem', color: persistedState === 'blob' ? '#2c7' : '#c72' }}
+        >
+          {persistedState === 'blob'
+            ? 'Last change persisted to Blob storage.'
+            : 'Last change stored in memory only (Blob write failed or not configured).'}
+        </p>
+      )}
 
 
       <div className="filters">
