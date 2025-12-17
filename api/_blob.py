@@ -12,8 +12,8 @@ from typing import Any, Optional, Tuple
 #   BLOB_READ_WRITE_TOKEN = "<vercel-blob-read-write-token>"
 #   BLOB_JSON_KEY = "birthdays.json"
 BLOB_BASE_URL = (os.getenv("BLOB_BASE_URL") or "").rstrip("/")
-BLOB_READ_WRITE_TOKEN = os.getenv("BLOB_READ_WRITE_TOKEN") or ""
-BLOB_JSON_KEY = os.getenv("BLOB_JSON_KEY") or "birthdays.json"
+BLOB_READ_WRITE_TOKEN = (os.getenv("BLOB_READ_WRITE_TOKEN") or "").strip()
+BLOB_JSON_KEY = (os.getenv("BLOB_JSON_KEY") or "birthdays.json").strip().lstrip("/")
 
 
 
@@ -109,18 +109,11 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
     """
     Write JSON document to Blob.
 
-    Preferred flow (per Vercel Blob REST):
-    - POST to https://blob.vercel-storage.com/ with:
-        Authorization: Bearer <token>
-        Content-Type: application/json
-        x-vercel-filename: <key>
-        x-vercel-blob-override: true   (allow overwrite/upsert)
-      Body: raw file content (the JSON)
+    Preferred deterministic overwrite flows (no new unique objects):
+    - PUT https://blob.vercel-storage.com/<key> with Authorization (Bearer RW token)
+    - PUT {BLOB_BASE_URL}/{key}?token=<rw_token> (public bucket with token)
 
-    Fallbacks:
-    - POST with token query (?token=...) if Authorization header is blocked
-    - PUT to https://blob.vercel-storage.com/<key> with Authorization header
-    - Legacy attempts to the public bucket URL (may return 405)
+    No POST flows are used to avoid unique object creation.
     """
     if not is_blob_configured():
         raise BlobError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
@@ -129,6 +122,29 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
     base = BLOB_BASE_URL.rstrip("/")
     path = urllib.parse.quote(k, safe="")
     payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
+
+    if (os.getenv("BLOB_STRICT_PUT") or "").strip() == "1":
+        # Strict mode: only perform deterministic authorized PUT to API host.
+        # If it fails, raise an error instead of falling back to any flow that could create new objects.
+        url_put = f"https://blob.vercel-storage.com/{path}"
+        req_put = urllib.request.Request(url_put, data=payload, method="PUT")
+        req_put.add_header("Accept", "application/json")
+        req_put.add_header("User-Agent", "birthdays-app-python")
+        req_put.add_header("Authorization", f"Bearer {BLOB_READ_WRITE_TOKEN}")
+        req_put.add_header("Content-Type", "application/json")
+        req_put.add_header("Cache-Control", "no-cache")
+        req_put.add_header("x-vercel-blob-override", "true")
+        try:
+            with urllib.request.urlopen(req_put, timeout=30) as resp_put:
+                code_put = resp_put.getcode()
+                if code_put in (200, 201):
+                    return
+                data_put = resp_put.read()
+                raise BlobError(f"Strict PUT failed: {code_put} @ {url_put}: {data_put.decode('utf-8','ignore')}")
+        except urllib.error.HTTPError as e_put:
+            raise BlobError(f"Strict PUT HTTP error: {e_put.code} @ {url_put}: {e_put.read().decode('utf-8','ignore')}")
+        except Exception as e_put:
+            raise BlobError(f"Strict PUT error: {e_put}")
 
     attempts = []
 
