@@ -384,7 +384,7 @@ export default function Page() {
     if (editingIndex !== index) return;
     if (backendReachable) {
       try {
-        const res = await fetch(`${apiBase}/people/${index}`, {
+        const res = await fetch(`/api/people_index.py?index=${index}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-HTTP-Method-Override': 'PUT' },
           credentials: 'include',
@@ -415,7 +415,7 @@ export default function Page() {
   async function handleDelete(index: number) {
     if (backendReachable) {
       try {
-        const res = await fetch(`${apiBase}/people/${index}`, {
+        const res = await fetch(`/api/people_index.py?index=${index}`, {
           method: 'POST',
           headers: { 'X-HTTP-Method-Override': 'DELETE' },
           credentials: 'include',
