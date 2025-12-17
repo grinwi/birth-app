@@ -52,10 +52,42 @@ def _request(method: str, url: str, body: Optional[bytes] = None, write: bool = 
 def get_json(key: Optional[str] = None, default: Any = None) -> Any:
     """
     Read JSON document from Blob. Returns `default` if missing (404).
+    Prefer authorized API host to avoid stale public CDN reads.
     """
     if not is_blob_configured():
         return default
     k = key or BLOB_JSON_KEY
+    k_path = urllib.parse.quote(k, safe="")
+
+    # Attempt 1: Authorized GET to blob API host
+    try:
+        status2, data2 = _request("GET", f"https://blob.vercel-storage.com/{k_path}", write=True)
+        if status2 == 200:
+            try:
+                return json.loads(data2.decode("utf-8"))
+            except Exception:
+                return default
+        if status2 == 404:
+            return default
+    except Exception:
+        pass
+
+    # Attempt 2: GET with token query param (no Authorization header) to blob API host
+    try:
+        if BLOB_READ_WRITE_TOKEN:
+            url_q = f"https://blob.vercel-storage.com/{k_path}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+            status3, data3 = _request("GET", url_q, write=False)
+            if status3 == 200:
+                try:
+                    return json.loads(data3.decode("utf-8"))
+                except Exception:
+                    return default
+            if status3 == 404:
+                return default
+    except Exception:
+        pass
+
+    # Attempt 3: Public bucket GET as last resort
     url = f"{BLOB_BASE_URL}/{urllib.parse.quote(k, safe='')}"
     status, data = _request("GET", url)
     if status == 200:
@@ -67,6 +99,8 @@ def get_json(key: Optional[str] = None, default: Any = None) -> Any:
     if status in (404, 403):
         # Treat 403 similar to missing for public buckets to allow bootstrap
         return default
+
+    # Give up with explicit error so callers don't treat it as empty (to avoid unintended bootstrap)
     raise BlobError(f"Blob GET failed: {status} {data.decode('utf-8', 'ignore')}")
 
 

@@ -202,6 +202,7 @@ export default function Page() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<Partial<Row>>({});
   const [persistedState, setPersistedState] = useState<'unknown' | 'blob' | 'memory'>('unknown');
+  const [isMutating, setIsMutating] = useState(false);
 
   // Init API base from localStorage once on mount
   useEffect(() => {
@@ -378,7 +379,16 @@ export default function Page() {
     return match.order === 'asc' ? '↑' : '↓';
   };
 
+  // Map a row index from the current filtered/sorted view back to the original rows[] index
+  function mapToOriginalIndex(viewIndex: number) {
+    const r = filteredRows[viewIndex];
+    const oi = rows.indexOf(r);
+    return oi >= 0 ? oi : viewIndex;
+  }
+
   async function handleAddRow() {
+    if (isMutating) return;
+    setIsMutating(true);
     const newRow: Row = {
       first_name: (prompt('Enter first name') as string) || '',
       last_name: (prompt('Enter last name') as string) || '',
@@ -408,8 +418,11 @@ export default function Page() {
         }
       } catch (e: any) {
         alert(`Failed to add row: ${e?.message || 'Unknown error'}`);
+      } finally {
+        setIsMutating(false);
       }
     } else {
+      setIsMutating(false);
       setRows((prev) => [...prev, newRow]);
     }
   }
@@ -425,14 +438,16 @@ export default function Page() {
   }
 
   async function saveEdit(index: number) {
+    if (isMutating) return;
     if (editingIndex !== index) return;
+    setIsMutating(true);
     if (backendReachable) {
       try {
-        const res = await fetch(`/api/people_index.py?index=${index}`, {
+        const res = await fetch(`/api/people_index.py?index=${mapToOriginalIndex(index)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-HTTP-Method-Override': 'PUT' },
           credentials: 'include',
-          body: JSON.stringify({ ...rows[index], ...(editValues as Row) }),
+          body: JSON.stringify({ ...rows[mapToOriginalIndex(index)], ...(editValues as Row) }),
         });
         if (res.status === 401) {
           window.location.href = '/login';
@@ -449,11 +464,14 @@ export default function Page() {
       } catch (e: any) {
         alert(`Failed to save row: ${e?.message || 'Unknown error'}`);
         return;
+      } finally {
+        setIsMutating(false);
       }
     } else {
+      setIsMutating(false);
       setRows((prev) => {
         const next = [...prev];
-        next[index] = { ...(editValues as Row) };
+        next[mapToOriginalIndex(index)] = { ...(editValues as Row) };
         return next;
       });
     }
@@ -462,9 +480,11 @@ export default function Page() {
   }
 
   async function handleDelete(index: number) {
+    if (isMutating) return;
+    setIsMutating(true);
     if (backendReachable) {
       try {
-        const res = await fetch(`/api/people_index.py?index=${index}`, {
+        const res = await fetch(`/api/people_index.py?index=${mapToOriginalIndex(index)}`, {
           method: 'POST',
           headers: { 'X-HTTP-Method-Override': 'DELETE' },
           credentials: 'include',
@@ -483,11 +503,14 @@ export default function Page() {
         }
       } catch (e: any) {
         alert(`Failed to delete row: ${e?.message || 'Unknown error'}`);
+      } finally {
+        setIsMutating(false);
       }
     } else {
+      setIsMutating(false);
       setRows((prev) => {
         const next = [...prev];
-        next.splice(index, 1);
+        next.splice(mapToOriginalIndex(index), 1);
         return next;
       });
     }
@@ -748,17 +771,17 @@ export default function Page() {
                 <td>
                   {inEdit ? (
                     <>
-                      <button className="btn-save" onClick={() => saveEdit(i)} style={{ marginRight: 8 }}>
+                      <button className="btn-save" onClick={() => saveEdit(i)} style={{ marginRight: 8 }} disabled={isMutating}>
                         Save
                       </button>
-                      <button className="btn-cancel" onClick={cancelEdit}>Cancel</button>
+                      <button className="btn-cancel" onClick={cancelEdit} disabled={isMutating}>Cancel</button>
                     </>
                   ) : (
                     <>
-                      <button className="btn-edit" onClick={() => startEdit(i, row)} style={{ marginRight: 8 }}>
+                      <button className="btn-edit" onClick={() => startEdit(i, row)} style={{ marginRight: 8 }} disabled={isMutating}>
                         Edit
                       </button>
-                      <button className="btn-delete" onClick={() => handleDelete(i)}>Delete</button>
+                      <button className="btn-delete" onClick={() => handleDelete(i)} disabled={isMutating}>Delete</button>
                     </>
                   )}
                 </td>
