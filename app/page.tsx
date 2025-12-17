@@ -455,7 +455,7 @@ export default function Page() {
       }
     }
     try {
-      const res = await fetch(`${apiBase}/json`, {
+      const res = await fetch(`${apiBase}/json?strict=false`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
