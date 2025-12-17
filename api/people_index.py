@@ -1,6 +1,8 @@
 import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import hashlib
+from datetime import datetime, timezone, timedelta
 
 from ._github import (
     create_pr_with_json,
@@ -19,6 +21,7 @@ _DEV_ROWS = None
 
 def normalize_row(row: dict) -> dict:
     return {
+        "id": (row.get("id") or "").strip(),
         "first_name": (row.get("first_name") or "").strip(),
         "last_name": (row.get("last_name") or "").strip(),
         "day": (row.get("day") or "").strip(),
@@ -47,6 +50,11 @@ def validate_row(row: dict) -> None:
         raise ValueError("year must be a realistic year (1900..3000)")
     import datetime
     _ = datetime.date(y, m, d)
+
+
+def _gen_id_from_dt(dt: datetime) -> str:
+    iso = dt.replace(tzinfo=timezone.utc).isoformat()
+    return hashlib.sha1(f"birthapp|{iso}".encode("utf-8")).hexdigest()
 
 
 def _bootstrap_blob_from_github_if_empty() -> list:
@@ -110,6 +118,29 @@ def store_get_rows():
             return _DEV_ROWS
         return []
     if isinstance(data, list):
+        # Backfill missing ids for existing rows and persist once if needed
+        needs = False
+        for r in data:
+            try:
+                if not (isinstance(r, dict) and (r.get("id") or "").strip()):
+                    needs = True
+                    break
+            except Exception:
+                continue
+        if needs:
+            base = datetime.now(timezone.utc)
+            idx = 0
+            for r in data:
+                try:
+                    if not (isinstance(r, dict) and (r.get("id") or "").strip()):
+                        r["id"] = _gen_id_from_dt(base + timedelta(minutes=idx))
+                        idx += 1
+                except Exception:
+                    pass
+            try:
+                store_set_rows(data)
+            except Exception:
+                pass
         return data
     # Attempt automatic bootstrap from GitHub JSON if Blob is empty/missing
     rows = _bootstrap_blob_from_github_if_empty()
@@ -198,7 +229,15 @@ class handler(BaseHTTPRequestHandler):
                 if idx >= len(rows):
                     _json_response(self, 400, {"error": "Index out of range"})
                     return
-                rows[idx] = normalize_row(payload)
+
+                updated = normalize_row(payload)
+                try:
+                    existing_id = rows[idx].get("id")
+                except Exception:
+                    existing_id = None
+                if not (updated.get("id") or "") and existing_id:
+                    updated["id"] = existing_id
+                rows[idx] = updated
                 store_set_rows(rows)
 
                 # Create PR with JSON only
@@ -274,7 +313,14 @@ class handler(BaseHTTPRequestHandler):
             if idx >= len(rows):
                 _json_response(self, 400, {"error": "Index out of range"})
                 return
-            rows[idx] = normalize_row(payload)
+            updated = normalize_row(payload)
+            try:
+                existing_id = rows[idx].get("id")
+            except Exception:
+                existing_id = None
+            if not (updated.get("id") or "") and existing_id:
+                updated["id"] = existing_id
+            rows[idx] = updated
             store_set_rows(rows)
 
             # Create PR with JSON only

@@ -10,7 +10,7 @@ type Row = {
   year: string;
 };
 
-type SortKey = 'first_name' | 'last_name' | 'day' | 'month' | 'year' | 'age';
+type SortKey = 'first_name' | 'last_name' | 'day' | 'month' | 'year' | 'age' | 'next_birthday';
 type Period =
   | 'all'
   | 'today'
@@ -147,6 +147,15 @@ function computeAge(row: Row) {
   );
   if (bdayThisYear > today) age--;
   return age;
+}
+
+function nextBirthdayDate(row: Row) {
+  const today = new Date();
+  const m = Math.max(1, Math.min(12, parseInt(row.month || '1', 10))) - 1;
+  const d = Math.max(1, Math.min(31, parseInt(row.day || '1', 10)));
+  let dt = new Date(today.getFullYear(), m, d);
+  if (dt < today) dt.setFullYear(today.getFullYear() + 1);
+  return dt;
 }
 
 function computeNextBirthdayDisplay(row: Row, periodRange: { start: Date; end: Date } | null) {
@@ -288,8 +297,37 @@ export default function Page() {
             return dir * (parseInt(a.month || '0') - parseInt(b.month || '0'));
           case 'year':
             return dir * (parseInt(a.year || '0') - parseInt(b.year || '0'));
-          case 'age':
-            return dir * (computeAge(a) - computeAge(b));
+          case 'age': {
+            const diff = computeAge(a) - computeAge(b);
+            if (diff !== 0) return dir * diff;
+            // tie-break by date of birth to keep same-day birthdays together
+            const ay = parseInt(a.year || '0', 10);
+            const by = parseInt(b.year || '0', 10);
+            if (ay !== by) return dir * (ay - by);
+            const am = parseInt(a.month || '0', 10);
+            const bm = parseInt(b.month || '0', 10);
+            if (am !== bm) return dir * (am - bm);
+            const ad = parseInt(a.day || '0', 10);
+            const bd = parseInt(b.day || '0', 10);
+            return dir * (ad - bd);
+          }
+          case 'next_birthday': {
+            const ta = nextBirthdayDate(a).getTime();
+            const tb = nextBirthdayDate(b).getTime();
+            if (ta !== tb) return dir * (ta - tb);
+            // tie-break by current age, then DOB
+            const diffAge = computeAge(a) - computeAge(b);
+            if (diffAge !== 0) return dir * diffAge;
+            const ay = parseInt(a.year || '0', 10);
+            const by = parseInt(b.year || '0', 10);
+            if (ay !== by) return dir * (ay - by);
+            const am = parseInt(a.month || '0', 10);
+            const bm = parseInt(b.month || '0', 10);
+            if (am !== bm) return dir * (am - bm);
+            const ad = parseInt(a.day || '0', 10);
+            const bd = parseInt(b.day || '0', 10);
+            return dir * (ad - bd);
+          }
           default:
             return 0;
         }
@@ -632,7 +670,17 @@ export default function Page() {
                 <span>{sortIndicator('age')}</span>
               </button>
             </th>
-            <th>Next Birthday</th>
+            <th>
+              Next Birthday
+              <button
+                id="sort-next-birthday-btn"
+                onClick={() => toggleSort('next_birthday')}
+                className="sort-btn"
+                style={{ color: 'grey', marginLeft: 8 }}
+              >
+                <span>{sortIndicator('next_birthday')}</span>
+              </button>
+            </th>
             <th>Actions</th>
           </tr>
         </thead>
