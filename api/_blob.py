@@ -29,6 +29,7 @@ def _headers_json(write: bool = False) -> dict:
     headers = {
         "Accept": "application/json",
         "User-Agent": "birthdays-app-python",
+        "Cache-Control": "no-cache",
     }
     if write:
         headers["Authorization"] = f"Bearer {BLOB_READ_WRITE_TOKEN}"
@@ -131,13 +132,50 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
 
     attempts = []
 
-    # Attempt 0: PUT to blob.vercel-storage.com/<key> (deterministic key, overwrite in place)
+    # Attempt 0: PUT to public bucket URL with token (preferred deterministic overwrite)
+    if BLOB_READ_WRITE_TOKEN:
+        url_pub_q = f"{base}/{path}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+        # Use manual Request to add override header so we overwrite the same key (no new objects)
+        req_q = urllib.request.Request(url_pub_q, data=payload, method="PUT")
+        req_q.add_header("Accept", "application/json")
+        req_q.add_header("User-Agent", "birthdays-app-python")
+        req_q.add_header("Content-Type", "application/json")
+        req_q.add_header("Cache-Control", "no-cache")
+        req_q.add_header("x-vercel-blob-override", "true")
+        try:
+            with urllib.request.urlopen(req_q, timeout=30) as resp_q:
+                code_q = resp_q.getcode()
+                if code_q in (200, 201):
+                    return
+                data_q = resp_q.read()
+                attempts.append(f"{code_q} @ {url_pub_q}: {data_q.decode('utf-8','ignore')}")
+        except urllib.error.HTTPError as e_q:
+            attempts.append(f"{e_q.code} @ {url_pub_q}: {e_q.read().decode('utf-8','ignore')}")
+        except Exception as e_q:
+            attempts.append(f"put public+token error: {e_q}")
+
+    # Attempt 1: PUT to blob.vercel-storage.com/<key> (deterministic key, overwrite in place)
     if BLOB_READ_WRITE_TOKEN:
         url_put = f"https://blob.vercel-storage.com/{path}"
-        status_put, data_put = _request("PUT", url_put, body=payload, write=True)  # Authorization + Content-Type
-        if status_put in (200, 201):
-            return
-        attempts.append(f"{status_put} @ {url_put}: {data_put.decode('utf-8','ignore')}")
+        # Add override header to force overwrite (no unique object creation)
+        req_put = urllib.request.Request(url_put, data=payload, method="PUT")
+        req_put.add_header("Accept", "application/json")
+        req_put.add_header("User-Agent", "birthdays-app-python")
+        req_put.add_header("Authorization", f"Bearer {BLOB_READ_WRITE_TOKEN}")
+        req_put.add_header("Content-Type", "application/json")
+        req_put.add_header("Cache-Control", "no-cache")
+        req_put.add_header("x-vercel-blob-override", "true")
+        try:
+            with urllib.request.urlopen(req_put, timeout=30) as resp_put:
+                code_put = resp_put.getcode()
+                if code_put in (200, 201):
+                    return
+                data_put = resp_put.read()
+                attempts.append(f"{code_put} @ {url_put}: {data_put.decode('utf-8','ignore')}")
+        except urllib.error.HTTPError as e_put:
+            attempts.append(f"{e_put.code} @ {url_put}: {e_put.read().decode('utf-8','ignore')}")
+        except Exception as e_put:
+            attempts.append(f"put api host error: {e_put}")
 
 
 
