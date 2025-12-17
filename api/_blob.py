@@ -73,10 +73,23 @@ def get_json(key: Optional[str] = None, default: Any = None) -> Any:
 def set_json(value: Any, key: Optional[str] = None) -> None:
     """
     Write JSON document to Blob.
-    Tries multiple strategies for compatibility with different Blob configurations.
+
+    Preferred flow (per Vercel Blob REST):
+    - POST to https://blob.vercel-storage.com/ with:
+        Authorization: Bearer <token>
+        Content-Type: application/json
+        x-vercel-filename: <key>
+        x-vercel-blob-override: true   (allow overwrite/upsert)
+      Body: raw file content (the JSON)
+
+    Fallbacks:
+    - POST with token query (?token=...) if Authorization header is blocked
+    - PUT to https://blob.vercel-storage.com/<key> with Authorization header
+    - Legacy attempts to the public bucket URL (may return 405)
     """
     if not is_blob_configured():
         raise BlobError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+
     k = key or BLOB_JSON_KEY
     base = BLOB_BASE_URL.rstrip("/")
     path = urllib.parse.quote(k, safe="")
@@ -84,30 +97,70 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
 
     attempts = []
 
-    # Attempt 1: PUT with Authorization header to the public bucket URL
+    # Attempt 0: POST to blob.vercel-storage.com with Authorization + x-vercel-filename
+    try:
+        if BLOB_READ_WRITE_TOKEN:
+            post_url = "https://blob.vercel-storage.com/"
+            req = urllib.request.Request(post_url, data=payload, method="POST")
+            req.add_header("Accept", "application/json")
+            req.add_header("User-Agent", "birthdays-app-python")
+            req.add_header("Authorization", f"Bearer {BLOB_READ_WRITE_TOKEN}")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("x-vercel-filename", path)
+            req.add_header("x-vercel-blob-override", "true")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                code = resp.getcode()
+                if code in (200, 201):
+                    return
+                data0 = resp.read()
+                attempts.append(f"{code} @ {post_url} (POST, filename): {data0.decode('utf-8','ignore')}")
+    except urllib.error.HTTPError as e:
+        attempts.append(f"{e.code} @ https://blob.vercel-storage.com/ (POST, filename): {e.read().decode('utf-8','ignore')}")
+    except Exception as e:
+        attempts.append(f"post error: {e}")
+
+    # Attempt 1: POST with token query (?token=...) (no Authorization header)
+    try:
+        if BLOB_READ_WRITE_TOKEN:
+            post_url_q = f"https://blob.vercel-storage.com/?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+            req2 = urllib.request.Request(post_url_q, data=payload, method="POST")
+            req2.add_header("Accept", "application/json")
+            req2.add_header("User-Agent", "birthdays-app-python")
+            req2.add_header("Content-Type", "application/json")
+            req2.add_header("x-vercel-filename", path)
+            req2.add_header("x-vercel-blob-override", "true")
+            with urllib.request.urlopen(req2, timeout=30) as resp2:
+                code2 = resp2.getcode()
+                if code2 in (200, 201):
+                    return
+                data2b = resp2.read()
+                attempts.append(f"{code2} @ https://blob.vercel-storage.com/ (POST, ?token): {data2b.decode('utf-8','ignore')}")
+    except urllib.error.HTTPError as e:
+        attempts.append(f"{e.code} @ https://blob.vercel-storage.com/ (POST, ?token): {e.read().decode('utf-8','ignore')}")
+    except Exception as e:
+        attempts.append(f"post ?token error: {e}")
+
+    # Attempt 2: PUT to generic upload host with Authorization header
+    if BLOB_READ_WRITE_TOKEN:
+        url3a = f"https://blob.vercel-storage.com/{path}"
+        status3a, data3a = _request("PUT", url3a, body=payload, write=True)  # adds Authorization + Content-Type
+        if status3a in (200, 201):
+            return
+        attempts.append(f"{status3a} @ {url3a}: {data3a.decode('utf-8','ignore')}")
+
+    # Attempt 3: PUT with Authorization header to the public bucket URL (often 405)
     url1 = f"{base}/{path}"
     status1, data1 = _request("PUT", url1, body=payload, write=True)
     if status1 in (200, 201):
         return
     attempts.append(f"{status1} @ {url1}: {data1.decode('utf-8', 'ignore')}")
 
-    # Attempt 2: PUT with token as query parameter (some setups accept ?token=)
+    # Attempt 4: PUT with token as query parameter to the public bucket URL
     if BLOB_READ_WRITE_TOKEN:
         url2 = f"{url1}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
         status2, data2 = _request("PUT", url2, body=payload, write=False)  # no auth header
         if status2 in (200, 201):
             return
         attempts.append(f"{status2} @ {url2}: {data2.decode('utf-8', 'ignore')}")
-
-    # Attempt 3: PUT to generic upload host (compat fallback)
-    try:
-        if BLOB_READ_WRITE_TOKEN:
-            url3 = f"https://blob.vercel-storage.com/{path}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
-            status3, data3 = _request("PUT", url3, body=payload, write=False)
-            if status3 in (200, 201):
-                return
-            attempts.append(f"{status3} @ https://blob.vercel-storage.com/{path}: {data3.decode('utf-8', 'ignore')}")
-    except Exception as e:
-        attempts.append(f"fallback error: {e}")
 
     raise BlobError("Blob PUT failed; attempts: " + " | ".join(attempts))
