@@ -8,7 +8,7 @@ function forwardHeaders(req: Request) {
   return headers;
 }
 
-async function proxy(method: 'GET' | 'POST', req: Request) {
+async function proxy(method: 'GET' | 'POST' | 'DELETE', req: Request) {
   const url = new URL(req.url);
   const target = `${url.origin}/api/json.py`;
   const init: RequestInit = {
@@ -54,6 +54,17 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     return await proxy('POST', req);
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: 'json_proxy_failed', detail: e?.message || String(e) }), {
+      status: 500,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    return await proxy('DELETE', req);
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: 'json_proxy_failed', detail: e?.message || String(e) }), {
       status: 500,

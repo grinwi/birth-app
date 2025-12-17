@@ -2,7 +2,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from ._blob import is_blob_configured, set_json as blob_set_json, get_json as blob_get_json
+from ._blob import is_blob_configured, set_json as blob_set_json, get_json as blob_get_json, delete_json as blob_delete_json
 from ._github import create_pr_with_json
 from ._auth import get_user_from_headers
 
@@ -112,3 +112,15 @@ class handler(BaseHTTPRequestHandler):
             _json_response(self, 400, {"error": "Invalid JSON"})
         except Exception as e:
             _json_response(self, 400, {"error": str(e)})
+
+    def do_DELETE(self):
+        user = get_user_from_headers(self.headers)
+        if not user or user.get("role") != "admin":
+            _json_response(self, 403, {"error": "Forbidden"})
+            return
+        try:
+            if is_blob_configured():
+                blob_delete_json()
+            _json_response(self, 200, {"ok": True, "deleted": True})
+        except Exception as e:
+            _json_response(self, 500, {"error": str(e)})

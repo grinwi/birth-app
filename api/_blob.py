@@ -105,6 +105,59 @@ def get_json(key: Optional[str] = None, default: Any = None) -> Any:
     raise BlobError(f"Blob GET failed: {status} {data.decode('utf-8', 'ignore')}")
 
 
+def delete_json(key: Optional[str] = None) -> None:
+    """
+    Delete the JSON document from Blob (idempotent).
+    Tries authorized DELETE to API host first, then public bucket with token.
+    Treats 404 as success (already deleted).
+    """
+    if not is_blob_configured():
+        raise BlobError("Blob is not configured (BLOB_BASE_URL, BLOB_READ_WRITE_TOKEN, BLOB_JSON_KEY)")
+    k = key or BLOB_JSON_KEY
+    base = BLOB_BASE_URL.rstrip("/")
+    path = urllib.parse.quote(k, safe="")
+
+    attempts = []
+
+    # Attempt 1: Authorized DELETE to blob API host
+    try:
+        url_api = f"https://blob.vercel-storage.com/{path}"
+        req = urllib.request.Request(url_api, method="DELETE")
+        req.add_header("Accept", "application/json")
+        req.add_header("User-Agent", "birthdays-app-python")
+        req.add_header("Authorization", f"Bearer {BLOB_READ_WRITE_TOKEN}")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            code = resp.getcode()
+            if code in (200, 202, 204):
+                return
+            attempts.append(f"{code} @ {url_api}")
+    except urllib.error.HTTPError as e:
+        if e.code in (404,):
+            return
+        attempts.append(f"{e.code} @ {url_api}: {e.read().decode('utf-8','ignore')}")
+    except Exception as e:
+        attempts.append(f"api delete error: {e}")
+
+    # Attempt 2: DELETE to public bucket URL with token (if supported)
+    try:
+        url_pub = f"{base}/{path}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
+        req2 = urllib.request.Request(url_pub, method="DELETE")
+        req2.add_header("Accept", "application/json")
+        req2.add_header("User-Agent", "birthdays-app-python")
+        with urllib.request.urlopen(req2, timeout=30) as resp2:
+            code2 = resp2.getcode()
+            if code2 in (200, 202, 204):
+                return
+            attempts.append(f"{code2} @ {url_pub}")
+    except urllib.error.HTTPError as e2:
+        if e2.code in (404,):
+            return
+        attempts.append(f"{e2.code} @ {url_pub}: {e2.read().decode('utf-8','ignore')}")
+    except Exception as e2:
+        attempts.append(f"public delete error: {e2}")
+
+    raise BlobError("Blob DELETE failed; attempts: " + " | ".join(attempts))
+
 def set_json(value: Any, key: Optional[str] = None) -> None:
     """
     Write JSON document to Blob.
@@ -137,7 +190,7 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
         try:
             with urllib.request.urlopen(req_put, timeout=30) as resp_put:
                 code_put = resp_put.getcode()
-                if code_put in (200, 201):
+                if 200 <= code_put < 300:
                     return
                 data_put = resp_put.read()
                 raise BlobError(f"Strict PUT failed: {code_put} @ {url_put}: {data_put.decode('utf-8','ignore')}")
@@ -161,7 +214,7 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
         try:
             with urllib.request.urlopen(req_q, timeout=30) as resp_q:
                 code_q = resp_q.getcode()
-                if code_q in (200, 201):
+                if 200 <= code_q < 300:
                     return
                 data_q = resp_q.read()
                 attempts.append(f"{code_q} @ {url_pub_q}: {data_q.decode('utf-8','ignore')}")
@@ -184,7 +237,7 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
         try:
             with urllib.request.urlopen(req_put, timeout=30) as resp_put:
                 code_put = resp_put.getcode()
-                if code_put in (200, 201):
+                if 200 <= code_put < 300:
                     return
                 data_put = resp_put.read()
                 attempts.append(f"{code_put} @ {url_put}: {data_put.decode('utf-8','ignore')}")
@@ -198,7 +251,7 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
     # Attempt 3: PUT with Authorization header to the public bucket URL (often 405)
     url1 = f"{base}/{path}"
     status1, data1 = _request("PUT", url1, body=payload, write=True)
-    if status1 in (200, 201):
+    if 200 <= status1 < 300:
         return
     attempts.append(f"{status1} @ {url1}: {data1.decode('utf-8', 'ignore')}")
 
@@ -206,7 +259,7 @@ def set_json(value: Any, key: Optional[str] = None) -> None:
     if BLOB_READ_WRITE_TOKEN:
         url2 = f"{url1}?token={urllib.parse.quote(BLOB_READ_WRITE_TOKEN, safe='')}"
         status2, data2 = _request("PUT", url2, body=payload, write=False)  # no auth header
-        if status2 in (200, 201):
+        if 200 <= status2 < 300:
             return
         attempts.append(f"{status2} @ {url2}: {data2.decode('utf-8', 'ignore')}")
 
