@@ -1,5 +1,6 @@
 import json
 from http.server import BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 from ._blob import is_blob_configured, set_json as blob_set_json, get_json as blob_get_json
 from ._github import create_pr_with_json
@@ -77,13 +78,20 @@ class handler(BaseHTTPRequestHandler):
                 _json_response(self, 400, {"error": "Unsupported payload format. Provide an array of rows or {\"data\": [...]}."})
                 return
 
-            # Validate all rows with clear indexing to surface issues early
+            # Strict validation toggle via ?strict=false (default is strict validation)
+            qs = parse_qs(urlparse(self.path).query or "")
+            strict = (qs.get("strict", ["true"])[0].lower() != "false")
+
+            # Validate all rows with clear indexing; in non-strict mode collect warnings instead of failing
+            warnings = []
             for i, r in enumerate(rows):
                 try:
                     _validate_row(r if isinstance(r, dict) else {})
                 except Exception as ve:
-                    _json_response(self, 400, {"error": f"Row {i}: {str(ve)}"})
-                    return
+                    if strict:
+                        _json_response(self, 400, {"error": f"Row {i}: {str(ve)}"})
+                        return
+                    warnings.append(f"Row {i}: {str(ve)}")
 
             # Persist to Blob (runtime DB) when configured; otherwise skip in dev
             if is_blob_configured():
@@ -96,7 +104,10 @@ class handler(BaseHTTPRequestHandler):
                 _json_response(self, 200, {"ok": True, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
                 return
 
-            _json_response(self, 200, {"ok": True, "count": len(rows), "pr_url": pr_url})
+            resp = {"ok": True, "count": len(rows), "pr_url": pr_url}
+            if warnings:
+                resp["warning"] = "; ".join(warnings)
+            _json_response(self, 200, resp)
         except json.JSONDecodeError:
             _json_response(self, 400, {"error": "Invalid JSON"})
         except Exception as e:
