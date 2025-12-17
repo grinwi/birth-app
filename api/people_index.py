@@ -147,7 +147,7 @@ def store_get_rows():
     return rows
 
 
-def store_set_rows(rows):
+def store_set_rows(rows) -> bool:
     global _DEV_ROWS
     if not is_blob_configured():
         # Dev/unconfigured: keep rows in-memory to allow UI edits without Blob
@@ -155,17 +155,18 @@ def store_set_rows(rows):
             _DEV_ROWS = list(rows)
         except Exception:
             _DEV_ROWS = rows
-        return
+        return False
     # Blob configured but write may fail (405/403). Fallback to in-memory to avoid breaking the UI.
     try:
         blob_set_json(rows)
+        return True
     except Exception:
         try:
             _DEV_ROWS = list(rows)
         except Exception:
             _DEV_ROWS = rows
         # swallow write error to keep UX working in dev/misconfigured envs
-        return
+        return False
 
 
 class handler(BaseHTTPRequestHandler):
@@ -237,34 +238,62 @@ class handler(BaseHTTPRequestHandler):
                     existing_id = None
                 if not (updated.get("id") or "") and existing_id:
                     updated["id"] = existing_id
-                rows[idx] = updated
-                store_set_rows(rows)
+                # Transactional flow: write Blob -> PR -> else revert Blob and error
+                if not is_blob_configured():
+                    _json_response(self, 503, {"ok": False, "error": "Blob not configured"})
+                    return
 
-                # Create PR with JSON only
+                rows_old = json.loads(json.dumps(rows))
+                rows[idx] = updated
+                try:
+                    blob_set_json(rows)
+                except Exception as be:
+                    _json_response(self, 500, {"ok": False, "error": f"Blob write failed: {str(be)}"})
+                    return
+
                 try:
                     pr_number, pr_url = create_pr_with_json(rows, title="Update person via UI")
                 except Exception as pe:
-                    _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                    reverted = True
+                    try:
+                        blob_set_json(rows_old)
+                    except Exception:
+                        reverted = False
+                    _json_response(self, 500, {"ok": False, "error": f"PR creation failed: {str(pe)}", "reverted": reverted})
                     return
 
-                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+                _json_response(self, 200, {"ok": True, "data": rows, "count": len(rows), "pr_url": pr_url})
                 return
 
             if override == "DELETE":
                 if idx >= len(rows):
                     _json_response(self, 400, {"error": "Index out of range"})
                     return
-                rows.pop(idx)
-                store_set_rows(rows)
+                # Transactional flow: write Blob -> PR -> else revert Blob and error
+                if not is_blob_configured():
+                    _json_response(self, 503, {"ok": False, "error": "Blob not configured"})
+                    return
 
-                # Create PR with JSON only
+                rows_old = json.loads(json.dumps(rows))
+                rows.pop(idx)
+                try:
+                    blob_set_json(rows)
+                except Exception as be:
+                    _json_response(self, 500, {"ok": False, "error": f"Blob write failed: {str(be)}"})
+                    return
+
                 try:
                     pr_number, pr_url = create_pr_with_json(rows, title="Delete person via UI")
                 except Exception as pe:
-                    _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                    reverted = True
+                    try:
+                        blob_set_json(rows_old)
+                    except Exception:
+                        reverted = False
+                    _json_response(self, 500, {"ok": False, "error": f"PR creation failed: {str(pe)}", "reverted": reverted})
                     return
 
-                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+                _json_response(self, 200, {"ok": True, "data": rows, "count": len(rows), "pr_url": pr_url})
                 return
 
             _json_response(self, 405, {"error": "Method Not Allowed"})
@@ -320,17 +349,31 @@ class handler(BaseHTTPRequestHandler):
                 existing_id = None
             if not (updated.get("id") or "") and existing_id:
                 updated["id"] = existing_id
-            rows[idx] = updated
-            store_set_rows(rows)
+            # Transactional flow: write Blob -> PR -> else revert Blob and error
+            if not is_blob_configured():
+                _json_response(self, 503, {"ok": False, "error": "Blob not configured"})
+                return
 
-            # Create PR with JSON only
+            rows_old = json.loads(json.dumps(rows))
+            rows[idx] = updated
+            try:
+                blob_set_json(rows)
+            except Exception as be:
+                _json_response(self, 500, {"ok": False, "error": f"Blob write failed: {str(be)}"})
+                return
+
             try:
                 pr_number, pr_url = create_pr_with_json(rows, title="Update person via UI")
             except Exception as pe:
-                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                reverted = True
+                try:
+                    blob_set_json(rows_old)
+                except Exception:
+                    reverted = False
+                _json_response(self, 500, {"ok": False, "error": f"PR creation failed: {str(pe)}", "reverted": reverted})
                 return
 
-            _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+            _json_response(self, 200, {"ok": True, "data": rows, "count": len(rows), "pr_url": pr_url})
         except json.JSONDecodeError:
             _json_response(self, 400, {"error": "Invalid JSON"})
         except Exception as e:
@@ -361,16 +404,30 @@ class handler(BaseHTTPRequestHandler):
             if idx >= len(rows):
                 _json_response(self, 400, {"error": "Index out of range"})
                 return
-            rows.pop(idx)
-            store_set_rows(rows)
+            # Transactional flow: write Blob -> PR -> else revert Blob and error
+            if not is_blob_configured():
+                _json_response(self, 503, {"ok": False, "error": "Blob not configured"})
+                return
 
-            # Create PR with JSON only
+            rows_old = json.loads(json.dumps(rows))
+            rows.pop(idx)
+            try:
+                blob_set_json(rows)
+            except Exception as be:
+                _json_response(self, 500, {"ok": False, "error": f"Blob write failed: {str(be)}"})
+                return
+
             try:
                 pr_number, pr_url = create_pr_with_json(rows, title="Delete person via UI")
             except Exception as pe:
-                _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": None, "warning": f"PR creation failed: {str(pe)}"})
+                reverted = True
+                try:
+                    blob_set_json(rows_old)
+                except Exception:
+                    reverted = False
+                _json_response(self, 500, {"ok": False, "error": f"PR creation failed: {str(pe)}", "reverted": reverted})
                 return
 
-            _json_response(self, 200, {"data": rows, "count": len(rows), "pr_url": pr_url})
+            _json_response(self, 200, {"ok": True, "data": rows, "count": len(rows), "pr_url": pr_url})
         except Exception as e:
             _json_response(self, 500, {"error": str(e)})
